@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BauCheck · AI Bauantrag Vorprüfung</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300&family=DM+Mono:wght@300;400;500&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#f5f3ef;
+  --white:#fefefe;
+  --panel:rgba(253,252,250,0.96);
+  --border:rgba(0,0,0,0.07);
+  --border2:rgba(0,0,0,0.12);
+  --text:#18181b;
+  --muted:#71717a;
+  --accent:#3b35cc;
+  --accent2:#6d28d9;
+  --accent-bg:#f0efff;
+  --ok:#057a55;
+  --ok-bg:#ecfdf5;
+  --warn:#b45309;
+  --warn-bg:#fffbeb;
+  --err:#be123c;
+  --err-bg:#fff1f2;
+  --shadow:0 2px 20px rgba(0,0,0,0.06),0 1px 4px rgba(0,0,0,0.04);
+  --shadow2:0 8px 40px rgba(0,0,0,0.09),0 2px 8px rgba(0,0,0,0.05);
+  --r:10px;--r2:16px;
+  --sidebar:272px;
+  --topbar:50px;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);
+  font-family:'DM Sans',sans-serif;color:var(--text);}
+
+/* ────────── NEBULA CANVASES ────────── */
+#neb-overlay{position:fixed;inset:0;background:rgba(6,9,22,0);pointer-events:none;
+  z-index:60;transition:background 0.9s;}
+body.neb-on #neb-overlay{background:rgba(6,9,22,0.78);pointer-events:all;}
+#neb-glow,#neb-main{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;}
+#neb-glow{z-index:61;filter:blur(22px);opacity:0.5;mix-blend-mode:screen;}
+#neb-main{z-index:62;mix-blend-mode:screen;}
+#neb-status{position:fixed;bottom:18%;left:50%;transform:translateX(-50%);
+  z-index:64;text-align:center;opacity:0;transition:opacity .5s;pointer-events:none;}
+body.neb-on #neb-status{opacity:1;}
+#neb-status-text{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;
+  letter-spacing:.22em;text-transform:uppercase;color:rgba(160,190,255,0.85);}
+#neb-bar{width:180px;height:1px;background:rgba(255,255,255,0.08);
+  margin:12px auto 0;border-radius:1px;overflow:hidden;}
+#neb-bar-fill{height:100%;width:0%;
+  background:linear-gradient(90deg,rgba(80,130,255,.8),rgba(0,210,255,.9));
+  transition:width .4s ease;}
+
+/* ────────── TOPBAR ────────── */
+#topbar{position:fixed;top:0;left:0;right:0;height:var(--topbar);z-index:500;
+  background:rgba(253,252,250,0.94);backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;
+  padding:0 16px 0 0;}
+.logo{width:var(--sidebar);min-width:var(--sidebar);padding:0 20px;
+  display:flex;align-items:center;gap:9px;border-right:1px solid var(--border);}
+.logo-mark{width:28px;height:28px;background:var(--accent);border-radius:7px;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Syne',sans-serif;font-size:14px;font-weight:800;color:white;letter-spacing:-.02em;}
+.logo-text{font-family:'Syne',sans-serif;font-size:15px;font-weight:800;
+  letter-spacing:-.02em;color:var(--text);}
+.logo-text span{color:var(--accent);}
+.top-chip{display:flex;align-items:center;gap:7px;padding:4px 11px;
+  background:var(--bg);border:1px solid var(--border2);border-radius:20px;
+  font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;}
+.top-chip .addr{font-weight:500;color:var(--text);}
+.dot{width:6px;height:6px;border-radius:50%;background:#d1d5db;flex-shrink:0;}
+.dot.pulse{background:var(--accent);animation:dp 2s ease-in-out infinite;}
+.dot.ok{background:var(--ok);}
+.dot.warn{background:#f59e0b;}
+@keyframes dp{0%,100%{opacity:1}50%{opacity:.25}}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+.tbtn{height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--border2);
+  background:transparent;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:500;
+  color:var(--muted);cursor:pointer;transition:all .2s;}
+.tbtn:hover{background:var(--bg);color:var(--text);}
+.tbtn.primary{background:var(--accent);color:white;border-color:var(--accent);}
+.tbtn.primary:hover{background:#322caa;}
+
+/* ────────── SIDEBAR ────────── */
+#sidebar{position:fixed;top:var(--topbar);left:0;bottom:0;width:var(--sidebar);
+  background:var(--white);border-right:1px solid var(--border);
+  overflow-y:auto;overflow-x:hidden;z-index:400;display:flex;flex-direction:column;}
+#sidebar::-webkit-scrollbar{width:3px;}
+#sidebar::-webkit-scrollbar-thumb{background:rgba(0,0,0,.08);border-radius:3px;}
+
+.sb-section{padding:18px 16px 0;}
+.sb-label{font-size:9px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted);margin-bottom:11px;}
+
+/* Upload */
+.upload-area{position:relative;border:1.5px dashed var(--border2);border-radius:var(--r);
+  padding:20px 16px;text-align:center;cursor:pointer;overflow:hidden;
+  transition:all .3s;background:var(--bg);min-height:110px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;}
+.upload-area:hover{border-color:var(--accent);background:var(--accent-bg);}
+.upload-area.drag-over{border-color:var(--accent);background:var(--accent-bg);border-style:solid;}
+.upload-area.has-file{border-style:solid;border-color:var(--ok);background:var(--ok-bg);}
+.upload-area.proc{border-color:var(--accent);border-style:solid;animation:bpulse 1.4s infinite;}
+@keyframes bpulse{0%,100%{border-color:var(--accent)}50%{border-color:rgba(59,53,204,.25)}}
+.up-icon{font-size:22px;opacity:.5;transition:all .3s;}
+.upload-area:hover .up-icon{opacity:.9;transform:translateY(-3px);}
+.up-title{font-size:11px;font-weight:600;color:var(--text);}
+.up-sub{font-size:9px;color:var(--muted);}
+.up-fname{font-size:10px;font-weight:600;color:var(--ok);display:none;
+  max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.upload-area.has-file .up-icon,.upload-area.has-file .up-title,
+.upload-area.has-file .up-sub{display:none;}
+.upload-area.has-file .up-fname{display:block;}
+
+.demo-btn{display:block;width:100%;margin-top:9px;height:34px;
+  background:linear-gradient(130deg,var(--accent),var(--accent2));
+  color:white;border:none;border-radius:var(--r);
+  font-family:'Syne',sans-serif;font-size:10px;font-weight:700;
+  letter-spacing:.1em;text-transform:uppercase;cursor:pointer;transition:all .3s;}
+.demo-btn:hover{transform:translateY(-1px);box-shadow:0 5px 18px rgba(59,53,204,.3);}
+.demo-btn:disabled{opacity:.5;cursor:not-allowed;transform:none;}
+
+/* Form fields */
+.ff{margin-bottom:9px;}
+.ff label{display:block;font-size:9px;font-weight:600;color:var(--muted);
+  letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px;}
+.ff input{width:100%;height:30px;padding:0 9px;background:var(--bg);
+  border:1px solid var(--border);border-radius:6px;font-family:'DM Mono',monospace;
+  font-size:11px;color:var(--text);transition:border-color .2s;}
+.ff input:focus{outline:none;border-color:var(--accent);background:var(--white);}
+.ff input.filled{background:var(--white);border-color:var(--border2);}
+.ff-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+
+/* B-Plan card */
+.bplan-card{background:var(--bg);border-radius:var(--r);padding:10px;
+  font-size:10px;color:var(--muted);text-align:center;line-height:1.6;}
+.bplan-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px;}
+.bplan-tag{background:var(--accent-bg);color:var(--accent);
+  padding:2px 7px;border-radius:4px;font-size:9px;font-weight:600;
+  font-family:'DM Mono',monospace;}
+
+/* ────────── MAP ────────── */
+#map{position:fixed;top:var(--topbar);left:var(--sidebar);right:0;bottom:0;z-index:1;}
+.leaflet-control-attribution{font-size:8px!important;}
+.leaflet-control-zoom a{font-size:14px!important;}
+
+/* Custom map tooltips */
+.maplabel{background:rgba(253,252,250,.97)!important;
+  border:1px solid rgba(0,0,0,.1)!important;border-radius:6px!important;
+  padding:4px 9px!important;font-family:'DM Sans',sans-serif!important;
+  font-size:10px!important;font-weight:500!important;color:var(--text)!important;
+  box-shadow:0 2px 12px rgba(0,0,0,.08)!important;white-space:nowrap!important;}
+.maplabel-warn{border-color:#f59e0b!important;background:#fffbeb!important;color:#92400e!important;}
+.maplabel-err{border-color:#f87171!important;background:#fff1f2!important;color:#991b1b!important;}
+
+/* ────────── FLOATING PANELS ────────── */
+.fpanel{position:fixed;background:var(--panel);border:1px solid var(--border);
+  border-radius:var(--r2);box-shadow:var(--shadow2);z-index:600;overflow:hidden;}
+.fp-head{height:34px;padding:0 12px;background:rgba(0,0,0,.015);
+  border-bottom:1px solid var(--border);display:flex;align-items:center;
+  justify-content:space-between;cursor:grab;user-select:none;flex-shrink:0;}
+.fp-head:active{cursor:grabbing;}
+.fp-handle{display:flex;gap:3px;}
+.fp-handle span{width:5px;height:5px;border-radius:50%;background:rgba(0,0,0,.13);}
+.fp-title{font-family:'Syne',sans-serif;font-size:9px;font-weight:700;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--muted);}
+.fp-close{width:20px;height:20px;border:none;background:transparent;color:var(--muted);
+  cursor:pointer;font-size:15px;border-radius:4px;transition:background .2s;
+  display:flex;align-items:center;justify-content:center;}
+.fp-close:hover{background:rgba(0,0,0,.06);}
+
+/* ────────── ANALYSIS PANEL ────────── */
+#apanel{top:66px;right:18px;width:340px;max-height:calc(100vh - 100px);
+  display:flex;flex-direction:column;}
+.apanel-scroll{flex:1;overflow-y:auto;overflow-x:hidden;}
+.apanel-scroll::-webkit-scrollbar{width:3px;}
+.apanel-scroll::-webkit-scrollbar-thumb{background:rgba(0,0,0,.08);border-radius:3px;}
+.apanel-body{padding:14px;}
+
+.ap-empty{text-align:center;padding:36px 20px;color:var(--muted);}
+.ap-empty-icon{font-size:30px;opacity:.35;margin-bottom:12px;}
+.ap-empty p{font-size:11px;line-height:1.7;}
+
+/* Steps */
+.step{display:flex;align-items:flex-start;gap:10px;padding:7px 9px;
+  border-radius:8px;font-size:10px;background:var(--bg);
+  transition:all .35s;opacity:.38;margin-bottom:5px;}
+.step.active{opacity:1;background:var(--accent-bg);border:1px solid rgba(59,53,204,.14);}
+.step.done{opacity:1;background:var(--ok-bg);}
+.step.warn{opacity:1;background:var(--warn-bg);}
+.step-ic{width:17px;height:17px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:8px;flex-shrink:0;margin-top:1px;
+  background:rgba(0,0,0,.06);color:var(--muted);}
+.step.active .step-ic{background:var(--accent);color:white;animation:spin .9s linear infinite;}
+.step.done .step-ic{background:var(--ok);color:white;}
+.step.warn .step-ic{background:#f59e0b;color:white;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.step-txt{flex:1;}
+.step-name{font-weight:600;color:var(--text);font-size:10px;}
+.step.active .step-name{color:var(--accent);}
+.step.done .step-name{color:var(--ok);}
+.step-sub{font-size:9px;color:var(--muted);margin-top:1px;
+  font-family:'DM Mono',monospace;}
+
+/* ────────── RESULTS ────────── */
+.results-wrap{display:none;}
+.results-wrap.on{display:block;}
+
+.verdict-block{background:linear-gradient(145deg,#0f0e1e,#1a1640);
+  border-radius:12px;padding:18px;text-align:center;margin-bottom:14px;}
+.verdict-score{font-family:'Syne',sans-serif;font-size:38px;font-weight:800;
+  color:white;line-height:1;}
+.verdict-pct{font-size:14px;font-weight:400;opacity:.5;}
+.verdict-label{font-size:11px;font-weight:700;margin-top:6px;letter-spacing:.04em;}
+.verdict-label.ok{color:#6ee7b7;}
+.verdict-label.warn{color:#fde68a;}
+.verdict-label.err{color:#fca5a5;}
+.verdict-sub{font-size:9px;color:rgba(255,255,255,.3);margin-top:4px;letter-spacing:.04em;}
+
+/* Score bars */
+.score-block{margin-bottom:14px;}
+.score-section-title{font-size:9px;font-weight:600;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--muted);margin-bottom:10px;}
+.sbar{margin-bottom:9px;}
+.sbar-head{display:flex;justify-content:space-between;margin-bottom:4px;}
+.sbar-label{font-size:10px;font-weight:500;color:var(--text);}
+.sbar-val{font-size:10px;font-weight:700;font-family:'DM Mono',monospace;}
+.sbar-val.ok{color:var(--ok);}
+.sbar-val.warn{color:var(--warn);}
+.sbar-val.err{color:var(--err);}
+.sbar-track{height:3px;background:rgba(0,0,0,.07);border-radius:3px;overflow:hidden;}
+.sbar-fill{height:100%;width:0%;border-radius:3px;
+  transition:width 1.4s cubic-bezier(.16,1,.3,1);}
+.sbar-fill.ok{background:linear-gradient(90deg,#059669,#34d399);}
+.sbar-fill.warn{background:linear-gradient(90deg,#d97706,#fbbf24);}
+.sbar-fill.err{background:linear-gradient(90deg,#be123c,#f87171);}
+
+/* Issues */
+.issues-block{margin-bottom:14px;}
+.issue{display:flex;gap:8px;padding:8px 9px;background:var(--bg);
+  border-radius:8px;margin-bottom:5px;font-size:10px;line-height:1.55;}
+.ibadge{padding:2px 6px;border-radius:4px;font-size:8px;font-weight:700;
+  letter-spacing:.04em;text-transform:uppercase;flex-shrink:0;height:fit-content;
+  font-family:'DM Mono',monospace;}
+.ibadge.err{background:var(--err-bg);color:var(--err);}
+.ibadge.warn{background:var(--warn-bg);color:var(--warn);}
+
+/* Details table */
+.details-block{margin-bottom:14px;}
+.dtrow{display:flex;justify-content:space-between;align-items:center;
+  padding:5px 0;border-bottom:1px solid var(--border);font-size:10px;}
+.dtrow:last-child{border-bottom:none;}
+.dtk{color:var(--muted);}
+.dtv{font-weight:600;font-family:'DM Mono',monospace;font-size:9px;}
+.dtv.ok{color:var(--ok);}
+.dtv.warn{color:var(--warn);}
+.dtv.err{color:var(--err);}
+
+/* Ask AI button */
+.ask-ai-btn{width:100%;height:34px;
+  background:linear-gradient(130deg,var(--accent),var(--accent2));
+  color:white;border:none;border-radius:var(--r);
+  font-family:'Syne',sans-serif;font-size:10px;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase;cursor:pointer;
+  transition:all .3s;margin-bottom:2px;}
+.ask-ai-btn:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(59,53,204,.3);}
+
+/* ────────── CHAT PANEL ────────── */
+#cpanel{bottom:18px;right:18px;width:320px;display:flex;flex-direction:column;
+  max-height:380px;}
+.chat-msgs{flex:1;overflow-y:auto;padding:12px 13px;
+  display:flex;flex-direction:column;gap:8px;max-height:240px;}
+.chat-msgs::-webkit-scrollbar{width:3px;}
+.chat-msgs::-webkit-scrollbar-thumb{background:rgba(0,0,0,.08);}
+.cmsg{padding:8px 11px;border-radius:10px;font-size:10px;line-height:1.65;max-width:92%;}
+.cmsg.ai{background:var(--accent-bg);color:var(--text);align-self:flex-start;
+  border-bottom-left-radius:3px;}
+.cmsg.user{background:var(--accent);color:white;align-self:flex-end;
+  border-bottom-right-radius:3px;}
+.cmsg-who{font-size:8px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  opacity:.55;margin-bottom:3px;}
+.typing{display:flex;gap:4px;align-items:center;padding:8px 11px;}
+.tdot{width:5px;height:5px;border-radius:50%;background:var(--accent);
+  animation:tb 1.3s infinite;}
+.tdot:nth-child(2){animation-delay:.18s;}
+.tdot:nth-child(3){animation-delay:.36s;}
+@keyframes tb{0%,60%,100%{transform:translateY(0);opacity:.35}30%{transform:translateY(-5px);opacity:1}}
+.chat-input-row{display:flex;gap:7px;padding:9px 12px;
+  border-top:1px solid var(--border);}
+.chat-inp{flex:1;height:30px;padding:0 10px;background:var(--bg);
+  border:1px solid var(--border);border-radius:15px;font-family:'DM Sans';
+  font-size:10px;color:var(--text);}
+.chat-inp:focus{outline:none;border-color:var(--accent);}
+.chat-send{width:30px;height:30px;border-radius:50%;background:var(--accent);
+  border:none;color:white;cursor:pointer;font-size:13px;
+  display:flex;align-items:center;justify-content:center;transition:all .2s;}
+.chat-send:hover{background:#322caa;transform:scale(1.05);}
+
+/* ────────── MAP LEGEND ────────── */
+#map-legend{position:fixed;bottom:20px;left:calc(var(--sidebar) + 16px);z-index:400;
+  background:var(--panel);border:1px solid var(--border);border-radius:10px;
+  padding:10px 13px;font-size:9px;display:none;backdrop-filter:blur(12px);}
+#map-legend.on{display:block;}
+.leg-title{font-size:8px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);margin-bottom:8px;}
+.leg-row{display:flex;align-items:center;gap:7px;margin-bottom:5px;color:var(--text);}
+.leg-sq{width:11px;height:11px;border-radius:2px;flex-shrink:0;}
+
+/* ────────── PROGRESS BAR (map top) ────────── */
+#map-prog{position:absolute;top:0;left:0;right:0;height:2px;z-index:10;overflow:hidden;display:none;}
+#map-prog.on{display:block;}
+#map-prog-fill{height:100%;width:0%;
+  background:linear-gradient(90deg,var(--accent),#7c3aed,var(--accent));
+  background-size:200%;animation:shine 1.5s linear infinite;}
+@keyframes shine{0%{background-position:0%}100%{background-position:200%}}
+
+/* ────────── TOAST ────────── */
+#toast{position:fixed;top:60px;left:50%;transform:translateX(-50%) translateY(-6px);
+  background:var(--text);color:white;padding:7px 16px;border-radius:20px;
+  font-size:10px;font-weight:500;z-index:700;opacity:0;transition:all .3s;
+  pointer-events:none;white-space:nowrap;}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
+
+/* ────────── COORD BADGE ────────── */
+#coord{position:fixed;bottom:18px;left:calc(var(--sidebar)+14px);
+  background:var(--panel);border:1px solid var(--border);border-radius:6px;
+  padding:4px 10px;font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);
+  z-index:400;display:none;pointer-events:none;}
+
+/* Glow on result arrival */
+#apanel.glow{border-color:rgba(59,53,204,.25);
+  box-shadow:0 8px 40px rgba(59,53,204,.12),0 2px 8px rgba(0,0,0,.05);}
+
+/* Highlight animation for map polygons */
+@keyframes polyPop{0%{stroke-width:2}50%{stroke-width:5}100%{stroke-width:2}}
+
+#file-input{display:none;}
+</style>
+</head>
+<body>
+
+<!-- Nebula -->
+<canvas id="neb-glow"></canvas>
+<canvas id="neb-main"></canvas>
+<div id="neb-overlay"></div>
+<div id="neb-status">
+  <div id="neb-status-text">Initialisiere...</div>
+  <div id="neb-bar"><div id="neb-bar-fill"></div></div>
+</div>
+
+<!-- Top Bar -->
+<header id="topbar">
+  <div class="logo">
+    <div class="logo-mark">B</div>
+    <div class="logo-text">Bau<span>Check</span></div>
+  </div>
+  <div class="top-chip">
+    <div class="dot" id="stdot"></div>
+    <span class="addr" id="st-addr">Kein Projekt</span>
+  </div>
+  <div class="topbar-right">
+    <button class="tbtn" onclick="resetAll()">↺ Neu</button>
+  </div>
+</header>
+
+<!-- Sidebar -->
+<aside id="sidebar">
+  <div class="sb-section" style="padding-top:16px;">
+    <div class="sb-label">Dokument</div>
+    <div class="upload-area" id="upload-area">
+      <div class="up-icon">📄</div>
+      <div class="up-title">Bauantrag hochladen</div>
+      <div class="up-sub">PDF · DXF · DWG — Drag & Drop</div>
+      <div class="up-fname" id="up-fname">—</div>
+    </div>
+    <button class="demo-btn" id="demo-btn">✦ Demo-Datei analysieren</button>
+    <input type="file" id="file-input" accept=".pdf,.dxf,.dwg">
+  </div>
+
+  <div class="sb-section" style="margin-top:18px;">
+    <div class="sb-label">Projektdaten</div>
+    <div class="ff"><label>Adresse</label><input type="text" id="fa" placeholder="Straße, Nr."></div>
+    <div class="ff-row">
+      <div class="ff"><label>PLZ</label><input type="text" id="fplz" placeholder="76137"></div>
+      <div class="ff"><label>Ort</label><input type="text" id="fort" placeholder="Karlsruhe"></div>
+    </div>
+    <div class="ff"><label>Vorhaben</label><input type="text" id="fvh" placeholder="z.B. Neubau MFH"></div>
+    <div class="ff-row">
+      <div class="ff"><label>Grundstück m²</label><input type="text" id="fgs" placeholder="826"></div>
+      <div class="ff"><label>GFZ</label><input type="text" id="fgfz" placeholder="1.8"></div>
+    </div>
+    <div class="ff-row">
+      <div class="ff"><label>Geschosse</label><input type="text" id="fge" placeholder="6"></div>
+      <div class="ff"><label>Nutzung</label><input type="text" id="fnu" placeholder="MI / WA"></div>
+    </div>
+  </div>
+
+  <div class="sb-section" style="margin-top:16px;padding-bottom:20px;">
+    <div class="sb-label">B-Plan Gebiet</div>
+    <div class="bplan-card" id="bplan-card">
+      Kein B-Plan geladen.<br>Demo starten oder Adresse eingeben.
+    </div>
+  </div>
+</aside>
+
+<!-- Map -->
+<div id="map">
+  <div id="map-prog"><div id="map-prog-fill"></div></div>
+</div>
+
+<!-- Analysis Panel -->
+<div class="fpanel" id="apanel">
+  <div class="fp-head" id="ap-head">
+    <div class="fp-handle"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <div class="fp-title">KI Vorprüfung</div>
+    <button class="fp-close" onclick="this.closest('.fpanel').style.display='none'">×</button>
+  </div>
+  <div class="apanel-scroll">
+    <div class="apanel-body">
+      <div class="ap-empty" id="ap-empty">
+        <div class="ap-empty-icon">🏛</div>
+        <p>Laden Sie einen Bauantrag hoch oder starten Sie die Demo, um die KI-Vorprüfung zu beginnen.</p>
+      </div>
+      <div id="steps-wrap" style="display:none;"></div>
+      <div class="results-wrap" id="results-wrap"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Chat Panel -->
+<div class="fpanel" id="cpanel" style="display:none;">
+  <div class="fp-head" id="cp-head">
+    <div class="fp-handle"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <div class="fp-title">KI-Assistent</div>
+    <button class="fp-close" onclick="this.closest('.fpanel').style.display='none'">×</button>
+  </div>
+  <div class="chat-msgs" id="cmsgs">
+    <div class="cmsg ai">
+      <div class="cmsg-who">BauCheck AI</div>
+      Hallo! Ich analysiere Ihren Bauantrag und beantworte Fragen zu LBO, B-Plan, Abstandsflächen, Brandschutz und mehr.
+    </div>
+  </div>
+  <div class="chat-input-row">
+    <input type="text" class="chat-inp" id="cinp" placeholder="Frage stellen…" onkeypress="chatKey(event)">
+    <button class="chat-send" onclick="sendChat()">↗</button>
+  </div>
+</div>
+
+<!-- Map Legend -->
+<div id="map-legend">
+  <div class="leg-title">Kartenlegende</div>
+  <div class="leg-row"><div class="leg-sq" style="background:#fef3c7;border:1.5px solid #f59e0b;"></div>Grundstücksparzelle</div>
+  <div class="leg-row"><div class="leg-sq" style="background:#ddd6fe;border:1.5px solid #7c3aed;"></div>Geplanter Baukörper</div>
+  <div class="leg-row"><div class="leg-sq" style="background:#f1f5f9;border:1.5px dashed #64748b;"></div>Nachbarbebauung</div>
+  <div class="leg-row"><div class="leg-sq" style="background:#fee2e2;border:1.5px dashed #ef4444;"></div>Problemzone</div>
+  <div class="leg-row"><div class="leg-sq" style="background:transparent;border:1px dashed #818cf8;"></div>Analysezone 50/100m</div>
+</div>
+
+<!-- Coord Badge -->
+<div id="coord"></div>
+<div id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  BAUCHECK · AI  ——  All systems
+// ═══════════════════════════════════════════════════════════════
+const TAU=Math.PI*2, rand=(a,b)=>a+Math.random()*(b-a),
+      randI=(a,b)=>Math.floor(rand(a,b)),
+      clamp=(v,a,b)=>Math.min(b,Math.max(a,v)),
+      hsla=(h,s,l,a)=>`hsla(${h},${s}%,${l}%,${a})`,
+      delay=ms=>new Promise(r=>setTimeout(r,ms));
+
+// ─── NEBULA ENGINE ────────────────────────────────────────────
+const cG=document.getElementById('neb-glow'),
+      cM=document.getElementById('neb-main'),
+      gG=cG.getContext('2d'), gM=cM.getContext('2d');
+let NW=0,NH=0,nebT=0,nebOn=false,nebParts=[],nebRings=[],nebLast=0;
+
+function nebResize(){
+  NW=cG.width=cM.width=window.innerWidth;
+  NH=cG.height=cM.height=window.innerHeight;
+}
+window.addEventListener('resize',nebResize); nebResize();
+
+// curl-ish flow field
+const fx=(x,y,t)=>Math.sin(x*.006+t*.22)*Math.cos(y*.005+t*.18)*2.3
+                  +Math.sin(y*.009-t*.11)*1.0+Math.cos((x+y)*.004+t*.3)*.7;
+const fy=(x,y,t)=>Math.cos(x*.007-t*.2)*Math.sin(y*.007+t*.17)*2.3
+                  +Math.cos(x*.008+t*.08)*1.0+Math.sin((x-y)*.005-t*.28)*.7;
+
+class NP{ // NebParticle
+  constructor(){this.reset();}
+  reset(){
+    const cx=NW*.5+rand(-NW*.25,NW*.25), cy=NH*.5+rand(-NH*.25,NH*.25);
+    this.x=cx;this.y=cy;this.vx=rand(-.4,.4);this.vy=rand(-.4,.4);
+    this.life=0;this.dead=false;this.ph=Math.random()*TAU;
+    const r=Math.random();
+    if(r<.18){
+      this.t='blob';this.r=rand(22,65);this.a=rand(.018,.06);
+      this.sp=rand(.001,.0028);this.h=rand(210,260);this.s=rand(55,80);
+      this.l=rand(32,55);this.ml=rand(280,420);
+    }else if(r<.68){
+      this.t='dot';this.r=rand(1.4,4.5);this.a=rand(.28,.72);
+      this.sp=rand(.005,.016);this.h=rand(185,230);this.s=rand(80,100);
+      this.l=rand(55,78);this.ml=rand(80,170);
+    }else{
+      this.t='spark';this.r=rand(.5,2);this.a=rand(.5,1);
+      this.sp=rand(.012,.028);this.h=rand(170,205);this.s=rand(55,85);
+      this.l=rand(82,96);this.ml=rand(45,90);
+    }
+  }
+  update(t){
+    this.life++;
+    const ft=this.t==='blob'?.05:.12;
+    this.vx+=fx(this.x,this.y,t)*ft; this.vy+=fy(this.x,this.y,t)*ft;
+    const d=this.t==='blob'?.93:.85;
+    this.vx*=d;this.vy*=d;
+    this.x+=this.vx;this.y+=this.vy;
+    if(this.life>this.ml||this.x<-200||this.x>NW+200||this.y<-200||this.y>NH+200)this.dead=true;
+  }
+  draw(t){
+    const lr=this.life/this.ml,fi=Math.min(1,lr*5),fo=Math.max(0,1-lr*1.1);
+    const fade=fi*fo,pulse=.8+.2*Math.sin(t*2.4+this.ph);
+    if(this.t==='blob'){
+      const a=this.a*fade*pulse; if(a<.001)return;
+      const gm=gM.createRadialGradient(this.x,this.y,0,this.x,this.y,this.r);
+      gm.addColorStop(0,hsla(this.h,this.s,this.l,a*2.2));
+      gm.addColorStop(.55,hsla(this.h,this.s,this.l*.82,a));
+      gm.addColorStop(1,'transparent');
+      gM.beginPath();gM.arc(this.x,this.y,this.r,0,TAU);
+      gM.fillStyle=gm;gM.fill();
+      const gg=gG.createRadialGradient(this.x,this.y,0,this.x,this.y,this.r*2.2);
+      gg.addColorStop(0,hsla(this.h+12,this.s,72,a*3.5));gg.addColorStop(1,'transparent');
+      gG.beginPath();gG.arc(this.x,this.y,this.r*2.2,0,TAU);gG.fillStyle=gg;gG.fill();
+    }else if(this.t==='dot'){
+      const a=this.a*fade*pulse; if(a<.012)return;
+      gM.beginPath();gM.arc(this.x,this.y,this.r,0,TAU);
+      gM.fillStyle=hsla(this.h,this.s,this.l,a);gM.fill();
+      gM.beginPath();gM.arc(this.x,this.y,this.r*.4,0,TAU);
+      gM.fillStyle=hsla(this.h+8,70,94,a*.7);gM.fill();
+      const gg=gG.createRadialGradient(this.x,this.y,0,this.x,this.y,this.r*3.8);
+      gg.addColorStop(0,hsla(this.h,this.s,82,a*1.9));gg.addColorStop(1,'transparent');
+      gG.beginPath();gG.arc(this.x,this.y,this.r*3.8,0,TAU);gG.fillStyle=gg;gG.fill();
+    }else{
+      const a=this.a*fade*pulse; if(a<.06)return;
+      gM.beginPath();gM.arc(this.x,this.y,this.r,0,TAU);
+      gM.fillStyle=hsla(this.h,45,96,a);gM.fill();
+      const gg=gG.createRadialGradient(this.x,this.y,0,this.x,this.y,this.r*7);
+      gg.addColorStop(0,hsla(this.h,80,90,a*2.2));gg.addColorStop(.5,hsla(this.h,90,70,a*.9));
+      gg.addColorStop(1,'transparent');
+      gG.beginPath();gG.arc(this.x,this.y,this.r*7,0,TAU);gG.fillStyle=gg;gG.fill();
+    }
+  }
+}
+
+class NR{ // NebRing
+  constructor(){
+    this.x=NW*.5+rand(-NW*.22,NW*.22);
+    this.y=NH*.5+rand(-NH*.22,NH*.22);
+    this.r=0;this.maxR=rand(60,160);this.life=0;this.ml=randI(52,80);this.dead=false;
+  }
+  update(){this.life++;this.r=(this.life/this.ml)*this.maxR;if(this.life>=this.ml)this.dead=true;}
+  draw(){
+    const a=(1-this.life/this.ml)*.38;
+    gM.beginPath();gM.arc(this.x,this.y,this.r,0,TAU);
+    gM.strokeStyle=`rgba(90,140,255,${a})`;gM.lineWidth=1;gM.stroke();
+    gG.beginPath();gG.arc(this.x,this.y,this.r,0,TAU);
+    gG.strokeStyle=`rgba(90,140,255,${a*1.6})`;gG.lineWidth=2.5;gG.stroke();
+  }
+}
+
+function nebLoop(ts){
+  requestAnimationFrame(nebLoop);
+  const dt=clamp((ts-nebLast)/1000,0,.05); nebLast=ts; nebT+=dt;
+  if(!nebOn){
+    gM.fillStyle='rgba(3,7,18,.12)';gM.fillRect(0,0,NW,NH);gG.clearRect(0,0,NW,NH);
+    nebParts=nebParts.filter(p=>!p.dead);
+    for(const p of nebParts){p.update(nebT);p.draw(nebT);}
+    return;
+  }
+  gM.fillStyle='rgba(3,7,18,.058)';gM.fillRect(0,0,NW,NH);
+  gG.clearRect(0,0,NW,NH);gG.globalCompositeOperation='screen';
+  if(nebParts.length<240&&Math.random()<.75)nebParts.push(new NP());
+  if(Math.random()<.009)nebRings.push(new NR());
+  nebParts=nebParts.filter(p=>!p.dead);
+  nebRings=nebRings.filter(r=>!r.dead);
+  for(const p of nebParts){p.update(nebT);p.draw(nebT);}
+  for(const r of nebRings){r.update();r.draw();}
+}
+requestAnimationFrame(nebLoop);
+
+function nebStart(txt){
+  nebOn=true;
+  document.body.classList.add('neb-on');
+  document.getElementById('neb-status-text').textContent=txt||'Analysiere…';
+  setNebProg(0);
+}
+function nebStop(){
+  nebOn=false;document.body.classList.remove('neb-on');
+  setTimeout(()=>{gM.clearRect(0,0,NW,NH);},1400);
+}
+function setNebProg(p,txt){
+  document.getElementById('neb-bar-fill').style.width=p+'%';
+  if(txt)document.getElementById('neb-status-text').textContent=txt;
+}
+
+// ─── MAP SETUP ────────────────────────────────────────────────
+const map=L.map('map',{zoomControl:true,attributionControl:true})
+  .setView([51.165,10.45],6);
+
+// Stadia Alidade Smooth (very clean, architectural look)
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
+  attribution:'© <a href="https://openstreetmap.org">OSM</a> © <a href="https://carto.com">CARTO</a>',
+  subdomains:'abcd',maxZoom:21
+}).addTo(map);
+
+let parcelPoly=null,buildPoly=null,neighborPolys=[],
+    circles=[],lines=[],labels=[];
+
+function clearMapLayers(){
+  [parcelPoly,buildPoly,...neighborPolys,...circles,...lines,...labels]
+    .filter(Boolean).forEach(l=>map.removeLayer(l));
+  parcelPoly=buildPoly=null;
+  neighborPolys=circles=lines=labels=[];
+}
+
+// ─── DEMO DATA ────────────────────────────────────────────────
+// Fictional: Rüppurrer Str. 14, 76137 Karlsruhe
+// Center ~49.0025, 8.3928
+const D={
+  addr:'Rüppurrer Str. 14, 76137 Karlsruhe',
+  lat:49.0025, lng:8.3928, zoom:18,
+
+  parcel:[  // ~38m × 28m lot
+    [49.00272, 8.39258],[49.00272, 8.39319],
+    [49.00234, 8.39319],[49.00234, 8.39258]
+  ],
+  building:[  // setback ~3m each side
+    [49.00269, 8.39264],[49.00269, 8.39313],
+    [49.00237, 8.39313],[49.00237, 8.39264]
+  ],
+  neighbours:[
+    {name:'Nachbar Nord · 5-geschossig (WA)',coords:[[49.00276,8.39258],[49.00276,8.39319],[49.00295,8.39319],[49.00295,8.39258]],issue:true},
+    {name:'Nachbar Süd · 3-geschossig (WA)',coords:[[49.00218,8.39258],[49.00218,8.39319],[49.00230,8.39319],[49.00230,8.39258]],issue:false},
+    {name:'Ost · Gewerbe (MK)',coords:[[49.00238,8.39322],[49.00238,8.39356],[49.00268,8.39356],[49.00268,8.39322]],issue:false},
+    {name:'West · Wohnbebauung (WA)',coords:[[49.00238,8.39218],[49.00238,8.39255],[49.00268,8.39255],[49.00268,8.39218]],issue:false},
+  ]
+};
+
+// ─── ANALYSIS STEPS ──────────────────────────────────────────
+const STEPS=[
+  {id:'parse',  name:'Dokument parsen',         sub:'PDF-Metadaten · Seiten: 47'},
+  {id:'geo',    name:'Adresse geocodieren',      sub:D.addr},
+  {id:'bplan',  name:'B-Plan abrufen',           sub:'B-Plan KA-2019-Süd · MI'},
+  {id:'parcel', name:'Grundstück kartieren',     sub:'Flurstück 4712 · 826 m²'},
+  {id:'neighb', name:'Umgebung analysieren',     sub:'4 Nachbargebäude erkannt'},
+  {id:'grz',    name:'GRZ / GFZ prüfen',         sub:'Flächenberechnung LBO BW'},
+  {id:'abstand',name:'Abstandsflächen prüfen',   sub:'LBO BW §5 · H × 0.4'},
+  {id:'stellpl',name:'Stellplätze berechnen',    sub:'GaStellV BW §37'},
+  {id:'brand',  name:'Brandschutz analysieren',  sub:'MBO + LBO BW · Risikoklasse 3'},
+  {id:'flucht', name:'Fluchtwege prüfen',        sub:'Max. 35m Laufweg · 2. Rettungsweg'},
+  {id:'barrier',name:'Barrierefreiheit',         sub:'DIN 18040-2 · Aufzugspflicht'},
+  {id:'result', name:'KI-Auswertung erstellen',  sub:'Modell analysiert 847 Parameter…'},
+];
+
+// Analysis results data
+const R={
+  score:72, verdict:'conditional', vtext:'Genehmigungsfähig mit Auflagen',
+  scores:[
+    {l:'Bebauungsplan-Konformität',v:82,c:'ok'},
+    {l:'GRZ / GFZ',v:74,c:'warn'},
+    {l:'Abstandsflächen',v:52,c:'err'},
+    {l:'Stellplätze',v:68,c:'warn'},
+    {l:'Brandschutz',v:88,c:'ok'},
+    {l:'Fluchtwege',v:92,c:'ok'},
+    {l:'Barrierefreiheit',v:71,c:'warn'},
+  ],
+  issues:[
+    {lvl:'err', txt:'Gebäudehöhe 19,2m überschreitet zulässige 18,0m um 1,2m (B-Plan KA-2019-Süd §4.2)'},
+    {lvl:'err', txt:'Abstandsfläche Nord: 2,8m geplant — 4,0m erforderlich (LBO BW §5 Abs.7). Unterschreitung 1,2m.'},
+    {lvl:'warn',txt:'Stellplätze: 10 nachgewiesen — 12 erforderlich. Defizit: 2 SP (GaStellV §37 BW)'},
+    {lvl:'warn',txt:'GRZ 0,61 überschreitet zulässige 0,60 um 1,7% — Befreiung §31 BauGB erforderlich'},
+    {lvl:'warn',txt:'Barrierefreier Aufzug fehlt im Lageplan-Nachweis (DIN 18040-2, Gebäudeklasse 4)'},
+  ],
+  details:[
+    {k:'Bebauungsplan',v:'KA-2019-Süd (MI)',c:'ok'},
+    {k:'Grundstücksgröße',v:'826 m²',c:'ok'},
+    {k:'GRZ geplant / zulässig',v:'0,61 / 0,60',c:'err'},
+    {k:'GFZ geplant / zulässig',v:'1,8 / 2,0',c:'ok'},
+    {k:'Gebäudehöhe',v:'19,2m / 18,0m',c:'err'},
+    {k:'Nutzungsart',v:'MI – Gewerbe EG + Wohnen',c:'ok'},
+    {k:'Vollgeschosse',v:'6 (BGF ca. 3.150 m²)',c:'warn'},
+    {k:'Stellplätze',v:'10 / 12 (−2)',c:'warn'},
+  ]
+};
+
+// ─── DEMO SEQUENCE ────────────────────────────────────────────
+let running=false;
+
+async function runDemo(){
+  if(running)return; running=true;
+  const db=document.getElementById('demo-btn');
+  db.disabled=true; db.textContent='⟳ Analyse läuft…';
+
+  // Fill form
+  [['fa','Rüppurrer Straße 14'],['fplz','76137'],['fort','Karlsruhe'],
+   ['fvh','Neubau MFH + EG Gewerbe'],['fgs','826'],['fgfz','1.8'],
+   ['fge','6'],['fnu','Mischgebiet MI']]
+    .forEach(([id,v])=>{const el=document.getElementById(id);el.value=v;el.classList.add('filled');});
+
+  // Upload animation
+  const ua=document.getElementById('upload-area');
+  ua.classList.add('has-file','proc');
+  document.getElementById('up-fname').textContent='Bauantrag_Rüppurrer14_KA.pdf';
+
+  // Update header
+  document.getElementById('stdot').className='dot pulse';
+  document.getElementById('st-addr').textContent='Rüppurrer Str. 14, KA';
+  toast('Demo-Datei geladen');
+
+  // Show analysis panel + build steps
+  const ap=document.getElementById('apanel');
+  ap.style.display='block';
+  document.getElementById('ap-empty').style.display='none';
+  document.getElementById('steps-wrap').style.display='block';
+  buildSteps();
+
+  // Start nebula
+  nebStart('Dokument wird analysiert…');
+  showMapProg();
+  await delay(800);
+
+  // ── Step 1: Parse
+  await step('parse',1100);
+  setNebProg(12,'Adresse wird geocodiert…');
+
+  // ── Step 2: Geocode + FLY to Karlsruhe
+  stepActive('geo');
+  map.flyTo([D.lat,D.lng],D.zoom,{duration:2.8,easeLinearity:.28});
+  await delay(2900); stepDone('geo');
+  setNebProg(22,'B-Plan wird abgerufen…');
+
+  // ── Step 3: B-Plan info
+  await step('bplan',900);
+  updateBPlan();
+  setNebProg(30);
+  await delay(200);
+
+  // ── Step 4: Draw parcel
+  stepActive('parcel');
+  setNebProg(38,'Grundstück wird kartiert…');
+  await delay(400);
+  await animatePoly(D.parcel,'#f59e0b','#fef3c7',2,'Grundstück · 826 m²',false);
+  await delay(350);
+  await animatePoly(D.building,'#6d28d9','#ede9fe',2,'Baukörper · 6 Geschosse',false);
+  stepDone('parcel');
+  setNebProg(46);
+
+  // ── Step 5: Neighbours
+  stepActive('neighb');
+  setNebProg(52,'Nachbarbebauung wird kartiert…');
+  for(let i=0;i<D.neighbours.length;i++){
+    const n=D.neighbours[i];
+    const poly=await animateNeighbour(n);
+    neighborPolys.push(poly);
+    await delay(300);
+  }
+  drawCircles();
+  stepDone('neighb');
+  setNebProg(60);
+
+  // ── Step 6: GRZ/GFZ
+  stepActive('grz');
+  setNebProg(65,'Flächenkennzahlen werden berechnet…');
+  drawLines();
+  await delay(1300); stepDone('grz');
+
+  // ── Step 7: Abstandsflächen
+  await step('abstand',1100);
+  setNebProg(72);
+  addLabel([49.00275,8.39288],'⚠ Abstand N: 2,8m &lt; 4,0m','err');
+
+  // ── Step 8: Stellplätze
+  await step('stellpl',900);
+  setNebProg(78);
+  addLabel([49.00245,8.39334],'⚠ Stellplätze: 10/12','warn');
+
+  // ── Steps 9–11
+  await step('brand',850); setNebProg(83);
+  await step('flucht',750); setNebProg(88);
+  await step('barrier',800); setNebProg(93);
+
+  // ── Step 12: Result
+  stepActive('result');
+  setNebProg(97,'KI-Auswertung wird erstellt…');
+  await delay(1600); stepDone('result');
+  setNebProg(100,'Analyse abgeschlossen ✓');
+  await delay(700);
+
+  nebStop();
+  await delay(500);
+
+  // Show results
+  showResults();
+  document.getElementById('map-legend').classList.add('on');
+  ua.classList.remove('proc');
+  document.getElementById('stdot').className='dot warn';
+  db.textContent='✦ Demo erneut starten';
+  db.disabled=false; running=false;
+
+  // Chat message after delay
+  await delay(900);
+  document.getElementById('cpanel').style.display='flex';
+  document.getElementById('cpanel').style.flexDirection='column';
+  setTimeout(()=>{
+    addTyping(()=>addChatMsg('ai',`Analyse abgeschlossen: <strong>Gesamtscore ${R.score}%</strong> — <em>Genehmigungsfähig mit Auflagen.</em><br><br>Kritische Punkte: Gebäudehöhe (−1,2m), Abstandsfläche Nord, und 2 fehlende Stellplätze. Was möchten Sie näher besprechen?`));
+  },600);
+}
+
+// ─── STEP HELPERS ─────────────────────────────────────────────
+function buildSteps(){
+  const w=document.getElementById('steps-wrap');
+  w.innerHTML='';
+  STEPS.forEach(s=>{
+    const d=document.createElement('div');
+    d.className='step'; d.id='step-'+s.id;
+    d.innerHTML=`<div class="step-ic" id="sic-${s.id}">○</div><div class="step-txt"><div class="step-name">${s.name}</div><div class="step-sub">${s.sub}</div></div>`;
+    w.appendChild(d);
+  });
+}
+function stepActive(id){
+  const el=document.getElementById('step-'+id); if(!el)return;
+  el.className='step active';
+  document.getElementById('sic-'+id).textContent='↻';
+  el.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function stepDone(id){
+  const el=document.getElementById('step-'+id); if(!el)return;
+  el.className='step done';
+  document.getElementById('sic-'+id).textContent='✓';
+}
+async function step(id,dur){stepActive(id);await delay(dur);stepDone(id);}
+
+// ─── MAP DRAWING ──────────────────────────────────────────────
+async function animatePoly(coords,color,fill,weight,tip,isNeighbour){
+  const poly=L.polygon(coords,{color,weight,fillColor:fill,fillOpacity:0,opacity:0,
+    dashArray:isNeighbour?'5,4':null}).addTo(map);
+  await fadeIn(poly,{opacity:1,fillOpacity:.42},40,25);
+  if(tip)poly.bindTooltip(tip,{permanent:true,direction:'center',className:'maplabel',opacity:1}).openTooltip();
+  if(!isNeighbour){
+    if(!parcelPoly)parcelPoly=poly; else buildPoly=poly;
+  }
+  return poly;
+}
+
+async function animateNeighbour(n){
+  const c=n.issue?'#ef4444':'#94a3b8', f=n.issue?'#fee2e2':'#f1f5f9';
+  const poly=L.polygon(n.coords,{color:c,weight:1.5,fillColor:f,
+    fillOpacity:0,opacity:0,dashArray:'5,4'}).addTo(map);
+  await fadeIn(poly,{opacity:1,fillOpacity:.4},35,22);
+  if(n.issue)poly.bindTooltip('⚠ '+n.name.split('·')[0].trim(),{permanent:false,className:'maplabel maplabel-warn'});
+  return poly;
+}
+
+function fadeIn(layer,targetStyle,steps,interval){
+  return new Promise(res=>{
+    let step=0;
+    const keys=Object.keys(targetStyle);
+    const iv=setInterval(()=>{
+      step++;const t=step/steps;
+      const style={};
+      keys.forEach(k=>style[k]=targetStyle[k]*t);
+      layer.setStyle(style);
+      if(step>=steps){clearInterval(iv);layer.setStyle(targetStyle);res();}
+    },interval);
+  });
+}
+
+function drawCircles(){
+  const cx=(D.parcel[0][0]+D.parcel[2][0])/2;
+  const cy=(D.parcel[0][1]+D.parcel[1][1])/2;
+  [[50,'#818cf8'],[100,'#a78bfa']].forEach(([r,c])=>{
+    const ci=L.circle([cx,cy],{radius:r,color:c,weight:1,
+      fillColor:c,fillOpacity:.025,dashArray:'3,7',opacity:.4}).addTo(map);
+    circles.push(ci);
+  });
+}
+
+function drawLines(){
+  // North setback — problem line (red dashed)
+  const nl=L.polyline([D.building[0],D.parcel[0]],
+    {color:'#ef4444',weight:2,dashArray:'4,4',opacity:0}).addTo(map);
+  fadeIn(nl,{opacity:.9},30,40);
+  nl.bindTooltip('Abstand N: 2,8m (min. 4,0m)',{className:'maplabel maplabel-err'});
+  lines.push(nl);
+
+  // South setback — ok (green)
+  const sl=L.polyline([D.building[2],D.parcel[2]],
+    {color:'#059669',weight:1.5,dashArray:'4,4',opacity:0}).addTo(map);
+  fadeIn(sl,{opacity:.75},30,40);
+  sl.bindTooltip('Abstand S: 3,2m ✓',{className:'maplabel'});
+  lines.push(sl);
+
+  // GRZ annotation line
+  const gl=L.polyline([D.building[1],D.building[2]],
+    {color:'#6d28d9',weight:1.5,dashArray:'2,5',opacity:.65}).addTo(map);
+  lines.push(gl);
+}
+
+function addLabel(latlng,html,type){
+  const icon=L.divIcon({className:'',
+    html:`<div style="background:${type==='err'?'#fff1f2':'#fffbeb'};border:1px solid ${type==='err'?'#f87171':'#f59e0b'};color:${type==='err'?'#991b1b':'#92400e'};border-radius:6px;padding:4px 9px;font-family:'DM Sans',sans-serif;font-size:10px;font-weight:600;white-space:nowrap;box-shadow:0 2px 10px rgba(0,0,0,.1);">${html}</div>`,
+    iconAnchor:[0,0]});
+  const m=L.marker(latlng,{icon}).addTo(map);
+  labels.push(m);
+}
+
+function showMapProg(){
+  const b=document.getElementById('map-prog'); b.classList.add('on');
+  const f=document.getElementById('map-prog-fill'); f.style.width='0';
+  setTimeout(()=>{f.style.width='100%';},80);
+  setTimeout(()=>b.classList.remove('on'),5000);
+}
+
+// ─── RESULTS ──────────────────────────────────────────────────
+function showResults(){
+  const wrap=document.getElementById('results-wrap');
+  wrap.classList.add('on');
+  const vcls=R.verdict==='ok'?'ok':R.verdict==='conditional'?'warn':'err';
+
+  wrap.innerHTML=`
+    <div class="verdict-block">
+      <div class="verdict-score">${R.score}<span class="verdict-pct">%</span></div>
+      <div class="verdict-label ${vcls}">${R.vtext}</div>
+      <div class="verdict-sub">KI-Vorprüfung · Nicht rechtsverbindlich</div>
+    </div>
+
+    <div class="score-block">
+      <div class="score-section-title">Prüfbereiche</div>
+      ${R.scores.map(s=>`
+        <div class="sbar">
+          <div class="sbar-head">
+            <span class="sbar-label">${s.l}</span>
+            <span class="sbar-val ${s.c}" data-target="${s.v}">0%</span>
+          </div>
+          <div class="sbar-track">
+            <div class="sbar-fill ${s.c}" data-target="${s.v}" style="width:0%"></div>
+          </div>
+        </div>`).join('')}
+    </div>
+
+    <div class="issues-block">
+      <div class="score-section-title">Mängel &amp; Hinweise</div>
+      ${R.issues.map(i=>`
+        <div class="issue">
+          <span class="ibadge ${i.lvl}">${i.lvl==='err'?'Mangel':'Hinweis'}</span>
+          <span>${i.txt}</span>
+        </div>`).join('')}
+    </div>
+
+    <div class="details-block">
+      <div class="score-section-title">Projektdetails</div>
+      ${R.details.map(d=>`
+        <div class="dtrow">
+          <span class="dtk">${d.k}</span>
+          <span class="dtv ${d.c}">${d.v}</span>
+        </div>`).join('')}
+    </div>
+
+    <button class="ask-ai-btn" onclick="openChat()">KI-Assistent fragen →</button>
+  `;
+
+  document.getElementById('apanel').classList.add('glow');
+
+  setTimeout(()=>{
+    document.querySelectorAll('.sbar-fill').forEach((bar,i)=>{
+      const t=+bar.dataset.target;
+      setTimeout(()=>{
+        bar.style.width=t+'%';
+        const val=bar.closest('.sbar').querySelector('.sbar-val');
+        animCounter(val,0,t,1400);
+      },i*90);
+    });
+  },300);
+}
+
+function animCounter(el,from,to,dur){
+  const start=performance.now();
+  function tick(now){
+    const frac=Math.min(1,(now-start)/dur);
+    const ease=1-Math.pow(1-frac,3);
+    el.textContent=Math.round(from+(to-from)*ease)+'%';
+    if(frac<1)requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+function updateBPlan(){
+  document.getElementById('bplan-card').innerHTML=`
+    <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:3px;">B-Plan KA-2019-Süd</div>
+    <div style="font-size:9px;color:var(--muted);margin-bottom:7px;">Mischgebiet (MI) · §34 BauGB</div>
+    <div class="bplan-tags">
+      <span class="bplan-tag">GRZ 0.60</span>
+      <span class="bplan-tag">GFZ 2.00</span>
+      <span class="bplan-tag">H max 18m</span>
+      <span class="bplan-tag">6 WG</span>
+    </div>`;
+}
+
+// ─── CHAT ─────────────────────────────────────────────────────
+function openChat(){
+  const p=document.getElementById('cpanel');
+  p.style.display='flex';p.style.flexDirection='column';
+}
+
+function addChatMsg(role,html){
+  const b=document.getElementById('cmsgs');
+  const el=document.createElement('div');
+  el.className=`cmsg ${role}`;
+  el.innerHTML=`<div class="cmsg-who">${role==='ai'?'BauCheck AI':'Sie'}</div>${html}`;
+  b.appendChild(el);b.scrollTop=b.scrollHeight;
+}
+
+function addTyping(cb){
+  const b=document.getElementById('cmsgs');
+  const t=document.createElement('div'); t.className='typing';
+  t.innerHTML='<div class="tdot"></div><div class="tdot"></div><div class="tdot"></div>';
+  b.appendChild(t); b.scrollTop=b.scrollHeight;
+  setTimeout(()=>{b.removeChild(t);cb();},2100);
+}
+
+const CHAT_AI={
+  abstand:`<strong>Abstandsflächen §5 LBO BW:</strong> Das Abstandsmaß berechnet sich aus 0,4 × Wandhöhe = 0,4 × 19,2m = 7,68m, mindestens aber 4,0m. Zur Nordgrenze sind nur 2,8m vorhanden.<br><br><strong>Lösung:</strong> Reduzierung der Gebäudehöhe auf ≤ 18,0m (dann H×0.4=7.2m, min. 4m → OK) oder Befreiung nach §31 BauGB mit Zustimmung der Nachbarn.`,
+  stellpl:`<strong>Stellplatzberechnung GaStellV BW:</strong><br>• 18 WE × 1,0 SP/WE = 18 SP<br>• EG Gewerbe 300m² × 1/50m² = 6 SP<br>• Fahrradstellplätze anrechenbar: −12 SP<br>→ Bedarf: 12 SP, nachgewiesen: 10 SP, Defizit: <strong>2 SP</strong>.<br><br>Optionen: Ablöse §37 Abs.5 LBO, Tiefgarage erweitern, oder Stellplatzverzichtsvereinbarung.`,
+  brand:`<strong>Brandschutz: 88% — gut.</strong><br>Positiv: Brandabschnitte nachgewiesen, nichtbrennbare Baustoffe, 2 Treppenhäuser geplant.<br><br>Offen: Automatische Brandmeldeanlage (BMA) für EG-Gewerbe formell belegen; 2. Rettungsweg DG über Leiter nachweisen.`,
+  hoehe:`<strong>Höhenüberschreitung:</strong> Die Traufhöhe 19,2m überschreitet den B-Plan-Festsatz von 18,0m um 1,2m.<br><br>Lösungen: (1) Reduzierung aller Geschosshöhen von 3,2m auf 3,0m spart 1,2m bei 6 Geschossen. (2) Aufgabe des 6. OG als Vollgeschoss (DG stattdessen). (3) Befreiungsantrag §31 BauGB – Erfolgschance gering bei Mi-Gebiet.`,
+  default:`Ich stehe für Fragen zu allen Bereichen der Bauantrag-Vorprüfung bereit:<br><br><strong>Themen:</strong> Abstandsflächen · Stellplätze · Gebäudehöhe · Brandschutz · Barrierefreiheit · GRZ/GFZ · Befreiungsmöglichkeiten<br><br>Was möchten Sie wissen?`
+};
+
+function sendChat(){
+  const inp=document.getElementById('cinp');
+  const txt=inp.value.trim(); if(!txt)return;
+  addChatMsg('user',txt); inp.value='';
+  const lc=txt.toLowerCase();
+  let r=CHAT_AI.default;
+  if(lc.includes('abstand')||lc.includes('grenze')||lc.includes('nord'))r=CHAT_AI.abstand;
+  else if(lc.includes('stellpl')||lc.includes('parkplatz')||lc.includes('park'))r=CHAT_AI.stellpl;
+  else if(lc.includes('brand')||lc.includes('feuer')||lc.includes('flucht'))r=CHAT_AI.brand;
+  else if(lc.includes('höhe')||lc.includes('geschoss')||lc.includes('etage'))r=CHAT_AI.hoehe;
+  nebStart('KI denkt nach…');
+  setTimeout(()=>{nebStop();addTyping(()=>addChatMsg('ai',r));},1800);
+}
+function chatKey(e){if(e.key==='Enter')sendChat();}
+
+// ─── DRAGGABLE PANELS ─────────────────────────────────────────
+function draggable(panel,handle){
+  let ox=0,oy=0,on=false;
+  handle.addEventListener('mousedown',e=>{
+    e.preventDefault();on=true;
+    const r=panel.getBoundingClientRect();ox=e.clientX-r.left;oy=e.clientY-r.top;
+    panel.style.transition='none';
+  });
+  window.addEventListener('mousemove',e=>{
+    if(!on)return;
+    let nx=clamp(e.clientX-ox,0,window.innerWidth-panel.offsetWidth);
+    let ny=clamp(e.clientY-oy,0,window.innerHeight-panel.offsetHeight);
+    panel.style.left=nx+'px';panel.style.top=ny+'px';
+    panel.style.right='auto';panel.style.bottom='auto';
+  });
+  window.addEventListener('mouseup',()=>on=false);
+  // touch
+  handle.addEventListener('touchstart',e=>{
+    const t=e.touches[0],r=panel.getBoundingClientRect();
+    on=true;ox=t.clientX-r.left;oy=t.clientY-r.top;
+  },{passive:true});
+  window.addEventListener('touchmove',e=>{
+    if(!on)return;e.preventDefault();
+    const t=e.touches[0];
+    panel.style.left=clamp(t.clientX-ox,0,window.innerWidth-panel.offsetWidth)+'px';
+    panel.style.top=clamp(t.clientY-oy,0,window.innerHeight-panel.offsetHeight)+'px';
+    panel.style.right='auto';panel.style.bottom='auto';
+  },{passive:false});
+  window.addEventListener('touchend',()=>on=false);
+}
+
+// ─── HELPERS ──────────────────────────────────────────────────
+function toast(msg){
+  const t=document.getElementById('toast');t.textContent=msg;t.classList.add('on');
+  setTimeout(()=>t.classList.remove('on'),2400);
+}
+
+function resetAll(){
+  running=false;nebStop();clearMapLayers();
+  map.setView([51.165,10.45],6);
+  ['fa','fplz','fort','fvh','fgs','fgfz','fge','fnu'].forEach(id=>{
+    const el=document.getElementById(id);el.value='';el.classList.remove('filled');
+  });
+  document.getElementById('upload-area').classList.remove('has-file','proc');
+  document.getElementById('ap-empty').style.display='block';
+  document.getElementById('steps-wrap').style.display='none';
+  document.getElementById('steps-wrap').innerHTML='';
+  document.getElementById('results-wrap').classList.remove('on');
+  document.getElementById('results-wrap').innerHTML='';
+  document.getElementById('apanel').classList.remove('glow');
+  document.getElementById('stdot').className='dot';
+  document.getElementById('st-addr').textContent='Kein Projekt';
+  document.getElementById('bplan-card').textContent='Kein B-Plan geladen.\nDemo starten oder Adresse eingeben.';
+  document.getElementById('map-legend').classList.remove('on');
+  document.getElementById('cpanel').style.display='none';
+  document.getElementById('cmsgs').innerHTML=`<div class="cmsg ai"><div class="cmsg-who">BauCheck AI</div>Hallo! Ich analysiere Ihren Bauantrag und beantworte Fragen zu LBO, B-Plan, Abstandsflächen, Brandschutz und mehr.</div>`;
+  const db=document.getElementById('demo-btn');db.disabled=false;db.textContent='✦ Demo-Datei analysieren';
+  toast('Projekt zurückgesetzt');
+}
+
+// ─── INIT ─────────────────────────────────────────────────────
+document.getElementById('demo-btn').addEventListener('click',runDemo);
+
+document.getElementById('upload-area').addEventListener('click',()=>{
+  document.getElementById('file-input').click();
+});
+document.getElementById('file-input').addEventListener('change',function(){
+  if(this.files[0]){
+    const ua=document.getElementById('upload-area');
+    ua.classList.add('has-file');
+    document.getElementById('up-fname').textContent=this.files[0].name;
+    toast('Datei geladen — Demo-Knopf drücken für Analyse');
+  }
+});
+const ua2=document.getElementById('upload-area');
+ua2.addEventListener('dragover',e=>{e.preventDefault();ua2.classList.add('drag-over');});
+ua2.addEventListener('dragleave',()=>ua2.classList.remove('drag-over'));
+ua2.addEventListener('drop',e=>{
+  e.preventDefault();ua2.classList.remove('drag-over');
+  if(e.dataTransfer.files[0]){
+    ua2.classList.add('has-file');
+    document.getElementById('up-fname').textContent=e.dataTransfer.files[0].name;
+  }
+});
+
+// Map hover coordinate badge
+map.on('mousemove',e=>{
+  const c=document.getElementById('coord');
+  c.style.display='block';
+  c.textContent=`${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
+  // Position near mouse but offset to avoid map-legend
+  const mapEl=document.getElementById('map');
+  const mapRect=mapEl.getBoundingClientRect();
+  const x=e.originalEvent.clientX-mapRect.left;
+  const y=e.originalEvent.clientY-mapRect.top;
+  c.style.left=(mapRect.left+10)+'px';
+  c.style.top=(mapRect.top+mapRect.height-40)+'px';
+  c.style.bottom='auto';
+});
+map.on('mouseout',()=>{document.getElementById('coord').style.display='none';});
+
+// Draggable panels
+draggable(document.getElementById('apanel'),document.getElementById('ap-head'));
+draggable(document.getElementById('cpanel'),document.getElementById('cp-head'));
+
+window.addEventListener('resize',()=>{
+  // Ensure panels stay in viewport
+  ['apanel','cpanel'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el)return;
+    const r=el.getBoundingClientRect();
+    if(r.right>window.innerWidth)el.style.left=(window.innerWidth-r.width-10)+'px';
+    if(r.bottom>window.innerHeight)el.style.top=(window.innerHeight-r.height-10)+'px';
+  });
+});
+</script>
+</body>
+</html>
