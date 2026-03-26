@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BauCheck AI · Bauantrags-Prüftool</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#f5f3ef;
+  --surface:#ffffff;
+  --surface2:#faf9f7;
+  --border:#e8e4dc;
+  --border2:#d4cfc5;
+  --text:#2a2520;
+  --text2:#7a7068;
+  --text3:#b0a898;
+  --accent:#3d6b8e;
+  --accent2:#5d9fc4;
+  --green:#2d7a5f;
+  --red:#b84444;
+  --orange:#c47520;
+  --yellow:#d4a017;
+  --purple:#6b5b9e;
+  --panel-shadow:0 2px 24px rgba(60,50,30,0.10),0 1px 4px rgba(60,50,30,0.06);
+  --panel-shadow-hover:0 8px 40px rgba(60,50,30,0.16),0 2px 8px rgba(60,50,30,0.08);
+}
+html,body{width:100%;height:100%;background:var(--bg);overflow:hidden;font-family:'Inter',sans-serif;color:var(--text);}
+
+/* ── CANVAS LAYERS (fog/nebula animation) ── */
+#c-fog{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;opacity:0;transition:opacity 1.5s;}
+#c-fog.active{opacity:1;}
+#c-glow{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;filter:blur(22px);opacity:0;mix-blend-mode:multiply;transition:opacity 1.5s;}
+#c-glow.active{opacity:0.35;}
+
+/* ── MAP ── */
+#map{position:fixed;top:0;left:0;width:100%;height:100%;z-index:1;}
+.leaflet-tile-pane{filter:saturate(0.85) brightness(1.02);}
+
+/* ── TOP BAR ── */
+#topbar{
+  position:fixed;top:0;left:0;right:0;height:56px;
+  background:rgba(245,243,239,0.92);
+  border-bottom:1px solid var(--border);
+  backdrop-filter:blur(16px);
+  z-index:100;
+  display:flex;align-items:center;padding:0 20px;gap:16px;
+}
+.tb-logo{
+  font-family:'Space Mono',monospace;font-size:15px;font-weight:700;
+  color:var(--accent);letter-spacing:-0.02em;
+  display:flex;align-items:center;gap:8px;
+}
+.tb-logo-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulseDot 2s ease-in-out infinite;}
+@keyframes pulseDot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.5;transform:scale(0.7)}}
+.tb-sep{width:1px;height:28px;background:var(--border2);}
+.tb-subtitle{font-size:11px;color:var(--text3);letter-spacing:0.08em;text-transform:uppercase;}
+.tb-spacer{flex:1;}
+.tb-status{font-size:11px;color:var(--text3);letter-spacing:0.06em;text-transform:uppercase;display:flex;align-items:center;gap:6px;}
+.tb-status-dot{width:6px;height:6px;border-radius:50%;background:var(--text3);}
+.tb-status-dot.active{background:#2d9f6f;animation:pulseDot 1.2s ease-in-out infinite;}
+.tb-status-dot.analyzing{background:var(--orange);animation:pulseDot 0.8s ease-in-out infinite;}
+
+/* ── FLOATING PANELS BASE ── */
+.panel{
+  position:fixed;
+  background:rgba(255,255,255,0.94);
+  border:1px solid var(--border);
+  border-radius:16px;
+  box-shadow:var(--panel-shadow);
+  backdrop-filter:blur(20px);
+  z-index:50;
+  transition:box-shadow 0.3s;
+  overflow:hidden;
+}
+.panel:hover{box-shadow:var(--panel-shadow-hover);}
+.panel-header{
+  display:flex;align-items:center;gap:8px;
+  padding:14px 16px 10px;
+  border-bottom:1px solid var(--border);
+  cursor:grab;
+  user-select:none;
+}
+.panel-header:active{cursor:grabbing;}
+.ph-icon{width:20px;height:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;}
+.ph-title{font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text2);}
+.ph-close{margin-left:auto;width:18px;height:18px;border-radius:4px;background:transparent;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:14px;transition:background 0.2s;}
+.ph-close:hover{background:var(--border);color:var(--text);}
+
+/* ── UPLOAD PANEL ── */
+#panel-upload{
+  left:20px;top:76px;width:260px;
+}
+.upload-zone{
+  margin:14px;
+  border:1.5px dashed var(--border2);
+  border-radius:12px;
+  padding:24px 16px;
+  text-align:center;
+  cursor:pointer;
+  transition:border-color 0.3s, background 0.3s;
+}
+.upload-zone:hover,.upload-zone.drag-over{
+  border-color:var(--accent2);
+  background:rgba(93,159,196,0.04);
+}
+.uz-icon{font-size:28px;margin-bottom:8px;opacity:0.6;}
+.uz-label{font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px;}
+.uz-sub{font-size:10px;color:var(--text3);}
+.uz-file{font-size:10px;color:var(--accent);font-weight:500;margin-top:6px;display:none;}
+.up-fields{padding:0 14px 14px;display:flex;flex-direction:column;gap:8px;}
+.up-field label{font-size:10px;font-weight:600;color:var(--text2);letter-spacing:0.06em;text-transform:uppercase;display:block;margin-bottom:4px;}
+.up-field input,.up-field select{
+  width:100%;padding:8px 10px;border-radius:8px;
+  border:1px solid var(--border2);background:var(--surface2);
+  font-size:12px;font-family:'Inter',sans-serif;color:var(--text);
+  outline:none;transition:border-color 0.2s;
+}
+.up-field input:focus,.up-field select:focus{border-color:var(--accent2);}
+.up-btn{
+  margin:0 14px 14px;width:calc(100% - 28px);
+  padding:10px;border-radius:10px;
+  background:var(--accent);border:none;
+  color:white;font-size:12px;font-weight:600;
+  font-family:'Inter',sans-serif;letter-spacing:0.04em;
+  cursor:pointer;transition:background 0.2s, transform 0.1s;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+}
+.up-btn:hover{background:var(--accent2);}
+.up-btn:active{transform:scale(0.98);}
+.up-btn.demo{background:linear-gradient(135deg,var(--purple),var(--accent));}
+
+/* ── STEPS PANEL ── */
+#panel-steps{
+  left:20px;top:76px;width:260px;
+  display:none;
+}
+.step-item{
+  display:flex;align-items:flex-start;gap:10px;
+  padding:10px 14px;
+  border-bottom:1px solid var(--border);
+  transition:background 0.3s;
+}
+.step-item:last-child{border-bottom:none;}
+.step-item.active{background:rgba(61,107,142,0.04);}
+.step-item.done{opacity:1;}
+.step-item.pending{opacity:0.4;}
+.step-num{
+  width:22px;height:22px;border-radius:50%;
+  border:1.5px solid var(--border2);
+  display:flex;align-items:center;justify-content:center;
+  font-size:9px;font-weight:700;color:var(--text3);
+  flex-shrink:0;transition:all 0.4s;
+}
+.step-item.active .step-num{border-color:var(--accent);color:var(--accent);background:rgba(61,107,142,0.08);}
+.step-item.done .step-num{border-color:var(--green);background:var(--green);color:white;}
+.step-text{font-size:11px;font-weight:500;color:var(--text);line-height:1.4;}
+.step-sub{font-size:10px;color:var(--text3);margin-top:2px;}
+.step-pulse{
+  width:6px;height:6px;border-radius:50%;background:var(--accent);
+  margin-top:8px;flex-shrink:0;
+  animation:pulseDot 1s ease-in-out infinite;
+  display:none;
+}
+.step-item.active .step-pulse{display:block;}
+
+/* ── RESULTS PANEL ── */
+#panel-results{
+  right:20px;top:76px;width:320px;
+  display:none;max-height:calc(100vh - 96px);overflow-y:auto;
+}
+#panel-results::-webkit-scrollbar{width:4px;}
+#panel-results::-webkit-scrollbar-track{background:transparent;}
+#panel-results::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+.res-content{padding:14px;}
+.res-verdict{
+  border-radius:12px;padding:14px;margin-bottom:14px;
+  display:flex;align-items:center;gap:12px;
+}
+.res-verdict.approved{background:rgba(45,122,95,0.08);border:1px solid rgba(45,122,95,0.2);}
+.res-verdict.rejected{background:rgba(184,68,68,0.08);border:1px solid rgba(184,68,68,0.2);}
+.res-verdict.conditional{background:rgba(196,117,32,0.08);border:1px solid rgba(196,117,32,0.2);}
+.verdict-icon{font-size:28px;}
+.verdict-text{flex:1;}
+.verdict-title{font-size:13px;font-weight:700;margin-bottom:2px;}
+.verdict-prob{font-size:11px;color:var(--text2);}
+.res-section-title{font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text3);margin-bottom:10px;margin-top:14px;}
+.res-bar-row{margin-bottom:10px;}
+.res-bar-label{display:flex;justify-content:space-between;font-size:11px;color:var(--text);margin-bottom:5px;font-weight:500;}
+.res-bar-track{height:6px;background:var(--border);border-radius:3px;overflow:hidden;}
+.res-bar-fill{height:100%;border-radius:3px;width:0%;transition:width 1.2s cubic-bezier(0.16,1,0.3,1);}
+.fill-green{background:linear-gradient(90deg,#2d7a5f,#4db88a);}
+.fill-orange{background:linear-gradient(90deg,#c47520,#e8a040);}
+.fill-red{background:linear-gradient(90deg,#b84444,#e06060);}
+.fill-blue{background:linear-gradient(90deg,#3d6b8e,#5d9fc4);}
+.res-note{
+  font-size:11px;color:var(--text2);line-height:1.6;
+  padding:10px 12px;background:var(--surface2);
+  border-radius:8px;border-left:3px solid var(--border2);
+  margin-bottom:8px;
+}
+.res-note.warn{border-left-color:var(--orange);}
+.res-note.ok{border-left-color:var(--green);}
+.res-note.err{border-left-color:var(--red);}
+.res-divider{height:1px;background:var(--border);margin:12px 0;}
+
+/* ── CHAT PANEL ── */
+#panel-chat{
+  right:20px;bottom:20px;width:320px;
+  display:none;
+}
+.chat-messages{
+  height:180px;overflow-y:auto;padding:10px 14px;
+  display:flex;flex-direction:column;gap:8px;
+}
+.chat-messages::-webkit-scrollbar{width:3px;}
+.chat-messages::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+.chat-msg{
+  max-width:88%;padding:8px 11px;border-radius:10px;
+  font-size:11px;line-height:1.55;
+}
+.chat-msg.ai{background:var(--surface2);border:1px solid var(--border);color:var(--text);align-self:flex-start;border-bottom-left-radius:3px;}
+.chat-msg.user{background:var(--accent);color:white;align-self:flex-end;border-bottom-right-radius:3px;}
+.chat-msg .msg-time{font-size:9px;opacity:0.5;margin-top:3px;}
+.chat-input-row{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--border);}
+.chat-input{
+  flex:1;padding:8px 10px;border-radius:8px;
+  border:1px solid var(--border2);background:var(--surface2);
+  font-size:12px;font-family:'Inter',sans-serif;color:var(--text);
+  outline:none;
+}
+.chat-input:focus{border-color:var(--accent2);}
+.chat-send{
+  padding:8px 12px;border-radius:8px;background:var(--accent);
+  border:none;color:white;font-size:12px;cursor:pointer;
+  font-family:'Inter',sans-serif;
+}
+.chat-send:hover{background:var(--accent2);}
+.chat-thinking{display:flex;gap:3px;padding:8px 12px;align-items:center;}
+.dot-bounce{width:5px;height:5px;border-radius:50%;background:var(--text3);animation:bounce 1.2s ease-in-out infinite;}
+.dot-bounce:nth-child(2){animation-delay:0.2s;}
+.dot-bounce:nth-child(3){animation-delay:0.4s;}
+@keyframes bounce{0%,80%,100%{transform:scale(0.8);opacity:0.5}40%{transform:scale(1.2);opacity:1}}
+
+/* ── MAP OVERLAY PANEL (mini info during analysis) ── */
+#map-info{
+  position:fixed;left:50%;bottom:30px;transform:translateX(-50%);
+  background:rgba(255,255,255,0.96);
+  border:1px solid var(--border);border-radius:12px;
+  padding:10px 20px;
+  font-size:11px;color:var(--text2);
+  letter-spacing:0.06em;text-transform:uppercase;
+  box-shadow:var(--panel-shadow);
+  z-index:50;display:none;
+  backdrop-filter:blur(12px);
+  white-space:nowrap;
+}
+#map-info.visible{display:block;}
+
+/* ── MAP LEGEND ── */
+#map-legend{
+  position:fixed;left:300px;bottom:30px;
+  background:rgba(255,255,255,0.96);
+  border:1px solid var(--border);border-radius:12px;
+  padding:12px 16px;
+  z-index:50;display:none;
+  backdrop-filter:blur(12px);
+  box-shadow:var(--panel-shadow);
+}
+#map-legend.visible{display:block;}
+.leg-title{font-size:9px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--text3);margin-bottom:8px;}
+.leg-item{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text);margin-bottom:5px;}
+.leg-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.leg-line{width:16px;height:2px;flex-shrink:0;}
+
+/* ── LAYER TOGGLE ── */
+#layer-toggle{
+  position:fixed;right:20px;bottom:340px;
+  background:rgba(255,255,255,0.96);
+  border:1px solid var(--border);border-radius:12px;
+  padding:8px;z-index:50;display:none;
+  backdrop-filter:blur(12px);
+  box-shadow:var(--panel-shadow);
+}
+#layer-toggle.visible{display:flex;flex-direction:column;gap:4px;}
+.layer-btn{
+  padding:6px 10px;border-radius:8px;border:1px solid var(--border);
+  background:var(--surface);font-size:10px;font-weight:500;
+  color:var(--text2);cursor:pointer;text-align:left;
+  transition:background 0.2s,border-color 0.2s;
+  font-family:'Inter',sans-serif;
+  display:flex;align-items:center;gap:6px;
+}
+.layer-btn.active{background:rgba(61,107,142,0.08);border-color:var(--accent2);color:var(--accent);}
+.layer-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+
+/* ── ANIMATIONS ── */
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideIn{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:translateX(0)}}
+.fade-in{animation:fadeIn 0.5s ease forwards;}
+.slide-in{animation:slideIn 0.4s ease forwards;}
+
+/* ── LEAFLET customization ── */
+.leaflet-popup-content-wrapper{border-radius:10px;box-shadow:var(--panel-shadow);border:1px solid var(--border);}
+.leaflet-popup-content{margin:0;font-family:'Inter',sans-serif;}
+.map-popup{padding:12px 14px;}
+.map-popup h4{font-size:12px;font-weight:600;color:var(--text);margin-bottom:6px;}
+.map-popup p{font-size:11px;color:var(--text2);line-height:1.5;margin-bottom:3px;}
+.map-popup .tag{display:inline-block;padding:2px 7px;border-radius:4px;font-size:9px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;margin-top:5px;}
+.tag-blue{background:rgba(61,107,142,0.1);color:var(--accent);}
+.tag-green{background:rgba(45,122,95,0.1);color:var(--green);}
+.tag-orange{background:rgba(196,117,32,0.1);color:var(--orange);}
+.tag-red{background:rgba(184,68,68,0.1);color:var(--red);}
+
+/* Pulse marker animation */
+@keyframes markerPulse{0%{transform:scale(1);opacity:1}50%{transform:scale(1.4);opacity:0.6}100%{transform:scale(1);opacity:1}}
+.marker-pulse-anim{animation:markerPulse 1.5s ease-in-out infinite;}
+
+/* Analysis progress ring on map */
+.map-scan-ring{
+  position:fixed;z-index:2;pointer-events:none;
+  border-radius:50%;border:2px solid rgba(61,107,142,0.4);
+  animation:scanRing 2s ease-out forwards;
+}
+@keyframes scanRing{
+  0%{width:0;height:0;opacity:0.9;margin-top:0;margin-left:0;}
+  100%{width:300px;height:300px;opacity:0;margin-top:-150px;margin-left:-150px;}
+}
+
+/* Scrollbar global */
+*::-webkit-scrollbar{width:4px;height:4px;}
+*::-webkit-scrollbar-track{background:transparent;}
+*::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+
+#file-input{display:none;}
+</style>
+</head>
+<body>
+
+<!-- Fog/Nebula canvas layers -->
+<canvas id="c-fog"></canvas>
+<canvas id="c-glow"></canvas>
+
+<!-- Leaflet Map -->
+<div id="map"></div>
+
+<input type="file" id="file-input" accept=".pdf,.dxf,.dwg,.ifc,.doc,.docx,.zip">
+
+<!-- TOP BAR -->
+<div id="topbar">
+  <div class="tb-logo">
+    <div class="tb-logo-dot"></div>
+    BauCheck<span style="color:var(--text3);font-weight:300"> AI</span>
+  </div>
+  <div class="tb-sep"></div>
+  <div class="tb-subtitle">Bauantrags-Vorprüfung · Deutschland</div>
+  <div class="tb-spacer"></div>
+  <div class="tb-status" id="tb-status">
+    <div class="tb-status-dot" id="status-dot"></div>
+    <span id="status-text">Bereit</span>
+  </div>
+</div>
+
+<!-- UPLOAD PANEL -->
+<div class="panel" id="panel-upload">
+  <div class="panel-header" id="drag-upload">
+    <div class="ph-icon" style="background:rgba(61,107,142,0.1);">📋</div>
+    <span class="ph-title">Bauantrag</span>
+  </div>
+  <div class="upload-zone" id="upload-zone">
+    <div class="uz-icon">📁</div>
+    <div class="uz-label">Unterlagen hochladen</div>
+    <div class="uz-sub">PDF, DXF, DWG, IFC, ZIP</div>
+    <div class="uz-file" id="uz-file"></div>
+  </div>
+  <div class="up-fields">
+    <div class="up-field">
+      <label>Adresse / Standort</label>
+      <input type="text" id="inp-address" placeholder="z.B. Kaiserstr. 12, Karlsruhe" value="">
+    </div>
+    <div class="up-field">
+      <label>Bauvorhaben</label>
+      <select id="inp-type">
+        <option>Neubau Wohngebäude</option>
+        <option>Erweiterung / Anbau</option>
+        <option>Umbau / Sanierung</option>
+        <option>Gewerbe / Büro</option>
+        <option>Gastronomie</option>
+        <option>Industriebau</option>
+      </select>
+    </div>
+    <div class="up-field">
+      <label>Geschosse</label>
+      <select id="inp-floors">
+        <option>1 (EG)</option>
+        <option>2 (EG + OG)</option>
+        <option selected>3 (EG + 2 OG)</option>
+        <option>4 (EG + 3 OG)</option>
+        <option>5+ (Hochhaus)</option>
+      </select>
+    </div>
+    <div class="up-field">
+      <label>BGF (Brutto-Geschossfläche)</label>
+      <input type="text" id="inp-bgf" placeholder="z.B. 850 m²" value="850 m²">
+    </div>
+  </div>
+  <button class="up-btn" id="btn-analyze" onclick="startAnalysis()">
+    <span>🔍</span> Prüfung starten
+  </button>
+  <button class="up-btn demo" id="btn-demo" onclick="startDemo()" style="margin-top:0;">
+    <span>⚡</span> Demo laden (Karlsruhe)
+  </button>
+</div>
+
+<!-- STEPS PANEL (shown during/after analysis) -->
+<div class="panel" id="panel-steps">
+  <div class="panel-header" id="drag-steps">
+    <div class="ph-icon" style="background:rgba(61,107,142,0.1);">🔄</div>
+    <span class="ph-title">Prüfschritte</span>
+    <span class="ph-close" onclick="document.getElementById('panel-steps').style.display='none'">×</span>
+  </div>
+  <div id="steps-list"></div>
+</div>
+
+<!-- RESULTS PANEL -->
+<div class="panel" id="panel-results">
+  <div class="panel-header" id="drag-results">
+    <div class="ph-icon" style="background:rgba(45,122,95,0.1);">📊</div>
+    <span class="ph-title">Prüfergebnis</span>
+    <span class="ph-close" onclick="document.getElementById('panel-results').style.display='none'">×</span>
+  </div>
+  <div id="results-content" class="res-content"></div>
+</div>
+
+<!-- CHAT PANEL -->
+<div class="panel" id="panel-chat">
+  <div class="panel-header" id="drag-chat">
+    <div class="ph-icon" style="background:rgba(107,91,158,0.1);">💬</div>
+    <span class="ph-title">KI-Assistent</span>
+    <span class="ph-close" onclick="document.getElementById('panel-chat').style.display='none'">×</span>
+  </div>
+  <div class="chat-messages" id="chat-messages"></div>
+  <div class="chat-input-row">
+    <input class="chat-input" id="chat-input" placeholder="Frage stellen..." onkeydown="if(event.key==='Enter')sendChat()">
+    <button class="chat-send" onclick="sendChat()">→</button>
+  </div>
+</div>
+
+<!-- MAP INFO BAR -->
+<div id="map-info"></div>
+
+<!-- MAP LEGEND -->
+<div id="map-legend">
+  <div class="leg-title">Kartenlegende</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#3d6b8e;"></div> Baugrundstück</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#c47520;"></div> Umgebende Bebauung</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#2d7a5f;"></div> Grünflächen</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#b84444;"></div> Kritische Bereiche</div>
+  <div class="leg-item"><div class="leg-line" style="background:#6b5b9e;"></div> Abstandsflächen</div>
+  <div class="leg-item"><div class="leg-line" style="background:#e8a040;border-top:2px dashed #e8a040;background:transparent;"></div> Baugrenze</div>
+</div>
+
+<!-- LAYER TOGGLE -->
+<div id="layer-toggle">
+  <div class="layer-btn active" id="lt-parcel" onclick="toggleLayer('parcel')"><div class="leg-dot layer-dot" style="background:#3d6b8e;"></div>Flurstück</div>
+  <div class="layer-btn active" id="lt-surround" onclick="toggleLayer('surround')"><div class="leg-dot layer-dot" style="background:#c47520;"></div>Umgebung</div>
+  <div class="layer-btn active" id="lt-setback" onclick="toggleLayer('setback')"><div class="leg-dot layer-dot" style="background:#6b5b9e;"></div>Abstände</div>
+  <div class="layer-btn active" id="lt-zones" onclick="toggleLayer('zones')"><div class="leg-dot layer-dot" style="background:#2d7a5f;"></div>Zonen</div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script>
+// ═══════════════════════════════════════════════════════════════
+// BAUCHECK AI — Main Application
+// ═══════════════════════════════════════════════════════════════
+
+const TAU = Math.PI * 2;
+const rand  = (lo, hi) => lo + Math.random() * (hi - lo);
+const randI = (lo, hi) => Math.floor(rand(lo, hi));
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const hsla  = (h, s, l, a) => `hsla(${h},${s}%,${l}%,${a})`;
+
+// ── FOG CANVAS SYSTEM (from neural-flow) ──────────────────────
+const cFog  = document.getElementById('c-fog');
+const cGlow = document.getElementById('c-glow');
+const ctxF  = cFog.getContext('2d');
+const ctxG2 = cGlow.getContext('2d');
+let FW = 0, FH = 0;
+
+function resizeFog() {
+  FW = window.innerWidth; FH = window.innerHeight;
+  cFog.width  = cGlow.width  = FW;
+  cFog.height = cGlow.height = FH;
+}
+window.addEventListener('resize', resizeFog);
+resizeFog();
+
+// Blob/particle system for fog
+class FogBlob {
+  constructor() { this.reset(); }
+  reset() {
+    this.x  = rand(0, FW); this.y = rand(0, FH);
+    this.vx = rand(-0.3, 0.3); this.vy = rand(-0.3, 0.3);
+    this.r  = rand(60, 180);
+    this.a  = rand(0.02, 0.06);
+    this.hue = rand(195, 230);
+    this.life = 0; this.maxLife = rand(300, 600);
+    this.phase = Math.random() * TAU;
+  }
+  update(T) {
+    this.life++;
+    const t = this.life / this.maxLife;
+    const fi = Math.min(1, t * 4);
+    const fo = Math.max(0, 1 - t * 1.5);
+    this.alpha = this.a * fi * fo;
+    this.x += this.vx + Math.sin(T * 0.18 + this.phase) * 0.15;
+    this.y += this.vy + Math.cos(T * 0.12 + this.phase) * 0.12;
+    if (this.life > this.maxLife) this.reset();
+  }
+  draw() {
+    const g = ctxF.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.r);
+    g.addColorStop(0,   hsla(this.hue, 55, 75, this.alpha));
+    g.addColorStop(0.5, hsla(this.hue, 45, 65, this.alpha * 0.5));
+    g.addColorStop(1,   'transparent');
+    ctxF.beginPath(); ctxF.arc(this.x, this.y, this.r, 0, TAU);
+    ctxF.fillStyle = g; ctxF.fill();
+    // glow
+    const gg = ctxG2.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.r * 1.4);
+    gg.addColorStop(0, hsla(this.hue + 10, 65, 65, this.alpha * 1.5));
+    gg.addColorStop(1, 'transparent');
+    ctxG2.beginPath(); ctxG2.arc(this.x, this.y, this.r * 1.4, 0, TAU);
+    ctxG2.fillStyle = gg; ctxG2.fill();
+  }
+}
+
+let fogBlobs = [];
+let fogActive = false, fogT = 0, fogLastTS = 0;
+
+function activateFog() {
+  fogActive = true;
+  cFog.classList.add('active');
+  cGlow.classList.add('active');
+  if (fogBlobs.length === 0) {
+    for (let i = 0; i < 18; i++) { const b = new FogBlob(); b.life = rand(0, 200); fogBlobs.push(b); }
+  }
+}
+function deactivateFog() {
+  fogActive = false;
+  cFog.classList.remove('active');
+  cGlow.classList.remove('active');
+}
+
+function fogLoop(ts) {
+  requestAnimationFrame(fogLoop);
+  if (!fogActive) return;
+  const dt = clamp((ts - fogLastTS) / 1000, 0, 0.05);
+  fogLastTS = ts; fogT += dt;
+  ctxF.clearRect(0, 0, FW, FH);
+  ctxG2.clearRect(0, 0, FW, FH);
+  for (const b of fogBlobs) { b.update(fogT); b.draw(); }
+}
+requestAnimationFrame(fogLoop);
+
+// ── MAP INITIALIZATION ─────────────────────────────────────────
+var map = L.map('map', { zoomControl: false }).setView([51.3, 10.2], 6);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap',
+  maxZoom: 19
+}).addTo(map);
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+L.control.scale({ position: 'bottomleft', imperial: false }).addTo(map);
+
+// Map layers
+let layerGroups = {
+  parcel:   L.layerGroup().addTo(map),
+  surround: L.layerGroup().addTo(map),
+  setback:  L.layerGroup().addTo(map),
+  zones:    L.layerGroup().addTo(map),
+};
+let layerVisible = { parcel: true, surround: true, setback: true, zones: true };
+
+function toggleLayer(name) {
+  layerVisible[name] = !layerVisible[name];
+  const btn = document.getElementById('lt-' + name);
+  if (layerVisible[name]) {
+    map.addLayer(layerGroups[name]);
+    btn.classList.add('active');
+  } else {
+    map.removeLayer(layerGroups[name]);
+    btn.classList.remove('active');
+  }
+}
+
+// ── DRAG PANELS ────────────────────────────────────────────────
+function makeDraggable(panelId, handleId) {
+  const panel  = document.getElementById(panelId);
+  const handle = document.getElementById(handleId);
+  if (!panel || !handle) return;
+  let dx = 0, dy = 0, down = false;
+  handle.addEventListener('mousedown', e => {
+    down = true;
+    dx = e.clientX - panel.getBoundingClientRect().left;
+    dy = e.clientY - panel.getBoundingClientRect().top;
+    panel.style.transition = 'none';
+    document.body.style.userSelect = 'none';
+  });
+  document.addEventListener('mousemove', e => {
+    if (!down) return;
+    let nx = e.clientX - dx, ny = e.clientY - dy;
+    nx = clamp(nx, 0, window.innerWidth - panel.offsetWidth);
+    ny = clamp(ny, 56, window.innerHeight - panel.offsetHeight);
+    panel.style.left = nx + 'px';
+    panel.style.top  = ny + 'px';
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+  });
+  document.addEventListener('mouseup', () => {
+    down = false;
+    document.body.style.userSelect = '';
+  });
+}
+makeDraggable('panel-upload',  'drag-upload');
+makeDraggable('panel-steps',   'drag-steps');
+makeDraggable('panel-results', 'drag-results');
+makeDraggable('panel-chat',    'drag-chat');
+
+// ── FILE UPLOAD ─────────────────────────────────────────────────
+const uploadZone = document.getElementById('upload-zone');
+const fileInput  = document.getElementById('file-input');
+let uploadedFile = null;
+
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault(); uploadZone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f) setFile(f);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
+
+function setFile(f) {
+  uploadedFile = f;
+  const el = document.getElementById('uz-file');
+  el.textContent = '📎 ' + f.name;
+  el.style.display = 'block';
+  uploadZone.querySelector('.uz-icon').textContent = '✅';
+}
+
+// ── STATUS ──────────────────────────────────────────────────────
+function setStatus(text, mode) {
+  document.getElementById('status-text').textContent = text;
+  const dot = document.getElementById('status-dot');
+  dot.className = 'tb-status-dot';
+  if (mode === 'active') dot.classList.add('active');
+  if (mode === 'analyzing') dot.classList.add('analyzing');
+}
+function showMapInfo(text) {
+  const el = document.getElementById('map-info');
+  el.textContent = text;
+  el.classList.add('visible');
+}
+function hideMapInfo() {
+  document.getElementById('map-info').classList.remove('visible');
+}
+
+// ── ANALYSIS STEPS CONFIG ───────────────────────────────────────
+const ANALYSIS_STEPS = [
+  { id:'geocode',    title:'Standort lokalisieren',        sub:'Adresse → Koordinaten',             icon:'📍' },
+  { id:'surround',   title:'Umgebungsanalyse',             sub:'Bebauung & Nutzungsstruktur',        icon:'🏘️' },
+  { id:'bplan',      title:'Bebauungsplan prüfen',         sub:'BPlan, FNP, Zonierung',              icon:'📐' },
+  { id:'abstand',    title:'Abstandsflächen',              sub:'LBO § 5–7, GRZ/GFZ',                icon:'📏' },
+  { id:'brandschutz',title:'Brandschutz',                  sub:'MBO, LBO, Rettungswege',             icon:'🔥' },
+  { id:'stellplatz', title:'Stellplätze & Erschließung',   sub:'StPlVO, ÖPNV-Anbindung',            icon:'🚗' },
+  { id:'energie',    title:'Energieeffizienz',             sub:'GEG, KfW-Standards',                 icon:'⚡' },
+  { id:'umwelt',     title:'Umwelt & Naturschutz',         sub:'BNatSchG, Artenschutz',              icon:'🌿' },
+  { id:'hoai',       title:'HOAI & Kostenermittlung',      sub:'Honorarzone, Projektkosten',         icon:'💰' },
+  { id:'result',     title:'KI-Gesamtbewertung',           sub:'Genehmigungswahrscheinlichkeit',     icon:'🤖' },
+];
+
+function buildStepsList(currentStep) {
+  const container = document.getElementById('steps-list');
+  container.innerHTML = '';
+  ANALYSIS_STEPS.forEach((s, i) => {
+    const status = i < currentStep ? 'done' : i === currentStep ? 'active' : 'pending';
+    const div = document.createElement('div');
+    div.className = `step-item ${status}`;
+    div.id = 'step-' + s.id;
+    div.innerHTML = `
+      <div class="step-num">${i < currentStep ? '✓' : i + 1}</div>
+      <div style="flex:1">
+        <div class="step-text">${s.icon} ${s.title}</div>
+        <div class="step-sub">${s.sub}</div>
+      </div>
+      <div class="step-pulse"></div>
+    `;
+    container.appendChild(div);
+  });
+}
+
+function advanceStep(stepIndex) {
+  ANALYSIS_STEPS.forEach((s, i) => {
+    const el = document.getElementById('step-' + s.id);
+    if (!el) return;
+    el.className = 'step-item ' + (i < stepIndex ? 'done' : i === stepIndex ? 'active' : 'pending');
+    const num = el.querySelector('.step-num');
+    num.textContent = i < stepIndex ? '✓' : i + 1;
+  });
+}
+
+// ── FAKE DEMO DATA — KARLSRUHE ───────────────────────────────────
+const KA_CENTER = [49.0077, 8.4037]; // Kaiserstraße Karlsruhe
+const KA_PARCEL = [
+  [49.0090, 8.4020], [49.0090, 8.4055],
+  [49.0068, 8.4055], [49.0068, 8.4020],
+];
+const KA_SURROUND_BUILDINGS = [
+  { coords:[[49.0093,8.4015],[49.0098,8.4015],[49.0098,8.4025],[49.0093,8.4025]], label:'WB 4-geschossig', type:'wohn' },
+  { coords:[[49.0093,8.4058],[49.0098,8.4058],[49.0098,8.4070],[49.0093,8.4070]], label:'Bürogebäude 5. OG', type:'buero' },
+  { coords:[[49.0060,8.4020],[49.0066,8.4020],[49.0066,8.4040],[49.0060,8.4040]], label:'GE Nutzung', type:'gewerbe' },
+  { coords:[[49.0060,8.4045],[49.0066,8.4045],[49.0066,8.4060],[49.0060,8.4060]], label:'WH 3-geschossig', type:'wohn' },
+  { coords:[[49.0080,8.4060],[49.0088,8.4060],[49.0088,8.4068],[49.0080,8.4068]], label:'Wohnhaus EG+1', type:'wohn' },
+];
+const KA_GREENZONE = [
+  [49.0073, 8.4030], [49.0073, 8.4045],
+  [49.0083, 8.4045], [49.0083, 8.4030],
+];
+
+// ── MAIN DEMO / ANALYSIS FUNCTION ─────────────────────────────
+function startDemo() {
+  document.getElementById('inp-address').value = 'Kaiserstraße 47, 76133 Karlsruhe';
+  document.getElementById('inp-type').value = 'Neubau Wohngebäude';
+  document.getElementById('inp-bgf').value = '1.240 m²';
+  document.getElementById('uz-file').textContent = '📎 Bauantrag_Kaiserstr47_KA.pdf';
+  document.getElementById('uz-file').style.display = 'block';
+  document.getElementById('upload-zone').querySelector('.uz-icon').textContent = '✅';
+  setTimeout(() => startAnalysis(), 400);
+}
+
+function startAnalysis() {
+  const address = document.getElementById('inp-address').value || 'Kaiserstraße 47, Karlsruhe';
+
+  // Show steps panel, hide upload panel
+  document.getElementById('panel-upload').style.display = 'none';
+  const stepsPanel = document.getElementById('panel-steps');
+  stepsPanel.style.display = 'block';
+  stepsPanel.style.left = '20px';
+  stepsPanel.style.top = '76px';
+  buildStepsList(-1);
+  document.getElementById('layer-toggle').classList.add('visible');
+
+  activateFog();
+  setStatus('Analyse läuft...', 'analyzing');
+
+  // Clear old map layers
+  Object.values(layerGroups).forEach(lg => lg.clearLayers());
+
+  // STEP SEQUENCE
+  const isKarlsruhe = address.toLowerCase().includes('karlsruhe') || address.toLowerCase().includes('kaiserstr');
+
+  runStepSequence(isKarlsruhe);
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function runStepSequence(isKarlsruhe) {
+  buildStepsList(0);
+
+  // STEP 0: Geocode / Fly to map
+  showMapInfo('📍 Standort wird lokalisiert...');
+  setStatus('Geocoding...', 'analyzing');
+  if (isKarlsruhe) {
+    map.flyTo(KA_CENTER, 16, { duration: 3.5, easeLinearity: 0.5 });
+    await sleep(3800);
+    // Place main marker with pulse
+    const mainMarker = L.marker(KA_CENTER, {
+      icon: L.divIcon({
+        className: '',
+        html: `<div style="position:relative">
+          <div style="width:16px;height:16px;border-radius:50%;background:#3d6b8e;border:2px solid white;box-shadow:0 0 0 4px rgba(61,107,142,0.3);"></div>
+        </div>`,
+        iconSize:[20,20],iconAnchor:[10,10]
+      })
+    }).addTo(layerGroups.parcel);
+    mainMarker.bindPopup(`<div class="map-popup"><h4>📍 Kaiserstraße 47, Karlsruhe</h4><p>Flurstück 3847/2</p><p>Gemarkung: Karlsruhe-Innenstadt</p><span class="tag tag-blue">Baugrundstück</span></div>`).openPopup();
+    spawnScanRing(map.latLngToContainerPoint(KA_CENTER));
+  }
+  advanceStep(1);
+
+  await sleep(1200);
+
+  // STEP 1: Surround analysis
+  showMapInfo('🏘️ Umgebende Bebauung wird analysiert...');
+  advanceStep(1);
+  if (isKarlsruhe) {
+    // Draw parcel
+    L.polygon(KA_PARCEL, {
+      color: '#3d6b8e', weight: 2.5, fillColor: '#3d6b8e', fillOpacity: 0.12, dashArray: null
+    }).addTo(layerGroups.parcel)
+    .bindPopup(`<div class="map-popup"><h4>📐 Baugrundstück</h4><p>Fläche: 1.850 m²</p><p>GRZ zul.: 0,6 | GFZ zul.: 2,0</p><span class="tag tag-blue">§ 34 BauGB</span></div>`);
+
+    // Draw surrounding buildings with delay
+    for (let i = 0; i < KA_SURROUND_BUILDINGS.length; i++) {
+      await sleep(500);
+      const b = KA_SURROUND_BUILDINGS[i];
+      const color = b.type === 'wohn' ? '#c47520' : b.type === 'buero' ? '#6b5b9e' : '#b84444';
+      L.polygon(b.coords, {
+        color, weight: 1.5, fillColor: color, fillOpacity: 0.18
+      }).addTo(layerGroups.surround)
+      .bindPopup(`<div class="map-popup"><h4>🏘️ ${b.label}</h4><p>Umgebende Bebauung</p><span class="tag tag-orange">Bestand</span></div>`);
+    }
+    // Greenzone
+    L.polygon(KA_GREENZONE, {
+      color: '#2d7a5f', weight: 1.5, fillColor: '#2d7a5f', fillOpacity: 0.15
+    }).addTo(layerGroups.zones)
+    .bindPopup(`<div class="map-popup"><h4>🌿 Grünfläche</h4><p>Geschützte Grünanlage</p><span class="tag tag-green">BNatSchG</span></div>`);
+  }
+  advanceStep(2);
+
+  await sleep(1000);
+
+  // STEP 2: BPlan
+  showMapInfo('📐 Bebauungsplan wird ausgewertet...');
+  advanceStep(2);
+  if (isKarlsruhe) {
+    // Draw setback lines
+    const expanded = KA_PARCEL.map(([lat, lng]) => [lat + 0.0003, lng + 0.0004]);
+    L.polygon(expanded, {
+      color: '#6b5b9e', weight: 1.5, fillOpacity: 0, dashArray: '6,4'
+    }).addTo(layerGroups.setback)
+    .bindPopup(`<div class="map-popup"><h4>📏 Abstandsfläche</h4><p>Mindestabstand: 3,0m (LBO BW)</p><p>Tiefe Abstandsfläche: 0,4H</p><span class="tag tag-blue">§ 5 LBO BW</span></div>`);
+    // Baugrenze
+    const bGrenze = KA_PARCEL.map(([lat, lng]) => [lat - 0.0001, lng - 0.0001]);
+    L.polygon(bGrenze, {
+      color: '#e8a040', weight: 2, fillOpacity: 0, dashArray: '8,4'
+    }).addTo(layerGroups.setback)
+    .bindPopup(`<div class="map-popup"><h4>🔶 Baugrenze</h4><p>Überbaubare Grundstücksfläche</p><span class="tag tag-orange">BPlan Nr. 847</span></div>`);
+
+    // Building footprint
+    const footprint = [
+      [49.0086, 8.4026], [49.0086, 8.4048],
+      [49.0072, 8.4048], [49.0072, 8.4026],
+    ];
+    L.polygon(footprint, {
+      color: '#3d6b8e', weight: 2, fillColor: '#3d6b8e', fillOpacity: 0.22
+    }).addTo(layerGroups.parcel)
+    .bindPopup(`<div class="map-popup"><h4>🏗️ Geplanter Baukörper</h4><p>BGF: 1.240 m² · 3 Geschosse</p><p>GRZ: 0,38 (zul. 0,6 ✓)</p><p>GFZ: 1,68 (zul. 2,0 ✓)</p><span class="tag tag-green">Konform</span></div>`);
+  }
+  advanceStep(3);
+  await sleep(1000);
+
+  // STEP 3: Abstandsflächen
+  showMapInfo('📏 Abstandsflächen werden berechnet...');
+  advanceStep(3);
+  await sleep(1200);
+  advanceStep(4);
+
+  // STEP 4: Brandschutz
+  showMapInfo('🔥 Brandschutzanforderungen werden geprüft...');
+  advanceStep(4);
+  if (isKarlsruhe) {
+    // Draw escape route line
+    L.polyline([[49.0077, 8.4037], [49.0077, 8.4020], [49.0070, 8.4005]], {
+      color: '#b84444', weight: 2, dashArray: '4,3'
+    }).addTo(layerGroups.setback)
+    .bindPopup(`<div class="map-popup"><h4>🚨 Rettungsweg 1</h4><p>Zweiter Rettungsweg erforderlich</p><span class="tag tag-red">Prüfen!</span></div>`);
+  }
+  await sleep(1200);
+  advanceStep(5);
+
+  // STEP 5: Stellplätze
+  showMapInfo('🚗 Stellplätze & Erschließung...');
+  advanceStep(5);
+  if (isKarlsruhe) {
+    L.marker([49.0068, 8.4035], {
+      icon: L.divIcon({
+        className: '',
+        html: `<div style="background:#555;color:white;padding:3px 6px;border-radius:5px;font-size:10px;font-weight:600;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.3)">🚗 TG-Einfahrt</div>`,
+        iconSize:[80,24],iconAnchor:[40,12]
+      })
+    }).addTo(layerGroups.surround);
+    L.marker([49.0090, 8.4037], {
+      icon: L.divIcon({
+        className: '',
+        html: `<div style="background:#2d7a5f;color:white;padding:3px 6px;border-radius:5px;font-size:10px;font-weight:600;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.3)">🚇 U-Bahn 120m</div>`,
+        iconSize:[100,24],iconAnchor:[50,12]
+      })
+    }).addTo(layerGroups.surround);
+  }
+  await sleep(1200);
+  advanceStep(6);
+
+  // STEP 6: Energie
+  showMapInfo('⚡ GEG & Energieeffizienz...');
+  advanceStep(6);
+  await sleep(1000);
+  advanceStep(7);
+
+  // STEP 7: Umwelt
+  showMapInfo('🌿 Naturschutzrechtliche Prüfung...');
+  advanceStep(7);
+  await sleep(900);
+  advanceStep(8);
+
+  // STEP 8: HOAI
+  showMapInfo('💰 HOAI Honorarermittlung...');
+  advanceStep(8);
+  await sleep(900);
+  advanceStep(9);
+
+  // STEP 9: KI Gesamtbewertung
+  showMapInfo('🤖 KI-Gesamtbewertung wird generiert...');
+  advanceStep(9);
+  spawnMultipleScanRings(isKarlsruhe);
+  await sleep(2000);
+  advanceStep(10);
+
+  // DONE
+  hideMapInfo();
+  deactivateFog();
+  setStatus('Analyse abgeschlossen ✓', 'active');
+  document.getElementById('map-legend').classList.add('visible');
+  showResults(isKarlsruhe);
+  showChatPanel(isKarlsruhe);
+}
+
+function spawnScanRing(point) {
+  const el = document.createElement('div');
+  el.className = 'map-scan-ring';
+  el.style.left = point.x + 'px';
+  el.style.top  = point.y + 56 + 'px';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2100);
+}
+function spawnMultipleScanRings(isKarlsruhe) {
+  if (!isKarlsruhe) return;
+  const pt = map.latLngToContainerPoint(KA_CENTER);
+  for (let i = 0; i < 4; i++) {
+    setTimeout(() => spawnScanRing({ x: pt.x + rand(-30,30), y: pt.y + rand(-20,20) }), i * 400);
+  }
+}
+
+// ── RESULTS PANEL ────────────────────────────────────────────────
+function showResults(isKarlsruhe) {
+  const panel = document.getElementById('panel-results');
+  panel.style.display = 'block';
+
+  const data = isKarlsruhe ? {
+    verdict: 'conditional',
+    prob: 78,
+    label: 'Bedingt genehmigungsfähig',
+    emoji: '⚠️',
+    scores: [
+      { name: 'Bebauungsrecht (§34 BauGB)', val: 88, cls: 'fill-green' },
+      { name: 'Abstandsflächen (LBO BW)', val: 82, cls: 'fill-green' },
+      { name: 'Brandschutz (MBO)', val: 61, cls: 'fill-orange' },
+      { name: 'Stellplätze (StPlVO BW)', val: 74, cls: 'fill-blue' },
+      { name: 'Energieeffizienz (GEG)', val: 85, cls: 'fill-green' },
+      { name: 'Naturschutz (BNatSchG)', val: 90, cls: 'fill-green' },
+      { name: 'HOAI Vollständigkeit', val: 55, cls: 'fill-orange' },
+    ],
+    notes: [
+      { type:'warn', text:'⚠️ Zweiter baulicher Rettungsweg fehlt in den eingereichten Unterlagen (MBO §33). Nachweis erforderlich.' },
+      { type:'warn', text:'⚠️ HOAI-Unterlagen unvollständig: Leistungsphase 4 (Genehmigungsplanung) nicht vollständig eingereicht.' },
+      { type:'ok',   text:'✅ GRZ 0,38 unterschreitet Höchstmaß (0,6) deutlich. Bebauungsdichte konform.' },
+      { type:'ok',   text:'✅ GEG-Nachweis liegt vor. KfW-55-Standard wird erreicht (93 kWh/m²a).' },
+      { type:'err',  text:'🚨 Artenschutzrechtliche Vorprüfung empfohlen: Grünfläche im Südbereich grenzt an geschützte Biotopfläche.' },
+      { type:'ok',   text:'✅ Stellplatznachweis: 18 Stück (TG) + 4 barrierefreie Stellplätze. ÖPNV-Bonus anrechenbar (U-Bahn 120m).' },
+    ]
+  } : {
+    verdict: 'conditional', prob: 72, label: 'Vorläufige Bewertung', emoji: '🔎',
+    scores: [
+      { name: 'Bebauungsrecht', val: 75, cls: 'fill-blue' },
+      { name: 'Brandschutz', val: 68, cls: 'fill-orange' },
+      { name: 'Energieeffizienz', val: 80, cls: 'fill-green' },
+      { name: 'Vollständigkeit', val: 60, cls: 'fill-orange' },
+    ],
+    notes: [
+      { type:'warn', text:'⚠️ Adresse konnte nicht georeferenziert werden. Bitte Demo starten für vollständige Analyse.' },
+    ]
+  };
+
+  const verdictColors = { approved: '#2d7a5f', conditional: '#c47520', rejected: '#b84444' };
+  const vColor = verdictColors[data.verdict];
+
+  let html = `
+    <div class="res-verdict ${data.verdict} fade-in">
+      <div class="verdict-icon">${data.emoji}</div>
+      <div class="verdict-text">
+        <div class="verdict-title" style="color:${vColor}">${data.label}</div>
+        <div class="verdict-prob">Genehmigungswahrscheinlichkeit: <strong style="color:${vColor}">${data.prob}%</strong></div>
+      </div>
+    </div>
+    <div class="res-section-title">Prüfbereiche im Detail</div>
+  `;
+  data.scores.forEach(s => {
+    html += `
+      <div class="res-bar-row">
+        <div class="res-bar-label"><span>${s.name}</span><span id="rv-${s.name.replace(/\s/g,'')}">${s.val}%</span></div>
+        <div class="res-bar-track"><div class="res-bar-fill ${s.cls}" id="rb-${s.name.replace(/\s/g,'')}" style="width:0%"></div></div>
+      </div>
+    `;
+  });
+  html += `<div class="res-divider"></div><div class="res-section-title">Hinweise & Maßnahmen</div>`;
+  data.notes.forEach(n => { html += `<div class="res-note ${n.type}">${n.text}</div>`; });
+  html += `<div class="res-divider"></div>
+    <div class="res-note" style="border-left-color:var(--purple);font-style:italic;">
+      🤖 Diese Analyse ist eine KI-gestützte Vorprüfung und ersetzt keine rechtlich verbindliche Beratung durch einen zugelassenen Architekten oder Baurechtler.
+    </div>
+  `;
+
+  document.getElementById('results-content').innerHTML = html;
+
+  // Animate bars
+  setTimeout(() => {
+    data.scores.forEach(s => {
+      const key = s.name.replace(/\s/g,'');
+      const el = document.getElementById('rb-' + key);
+      if (el) el.style.width = s.val + '%';
+    });
+  }, 300);
+}
+
+// ── CHAT PANEL ────────────────────────────────────────────────
+const AI_RESPONSES = {
+  'brandschutz': 'Für ein 3-geschossiges Wohngebäude in BW ist nach LBO §15 ein zweiter baulicher Rettungsweg erforderlich, sofern keine Sprinkleranlage eingebaut wird. Die Treppenhausbreite muss mind. 1,00 m betragen. Fluchtwege dürfen max. 35 m lang sein.',
+  'stellplatz': 'Nach StPlVO BW sind bei Wohngebäuden mind. 1 Stellplatz je Wohneinheit vorgeschrieben. Da Sie sich im ÖPNV-Einzugsbereich befinden (U-Bahn <150m), kann eine Reduzierung um 20% beantragt werden.',
+  'grz': 'Die GRZ (Grundflächenzahl) gibt an, wie viel des Grundstücks überbaut werden darf. Ihr Vorhaben liegt mit GRZ 0,38 deutlich unter dem zulässigen Wert von 0,6 — das ist ein positives Signal für die Genehmigungsbehörde.',
+  'hoai': 'Die HOAI regelt die Honorare für Architekten und Ingenieure. Für Ihr Vorhaben (BGF ~1.240 m², Honorarzone III) schätzen wir das Architektenhonorar auf ca. 85.000–110.000 € netto (LPH 1–5). Für die vollständige Einreichung fehlen noch die Unterlagen der LPH 4.',
+  'default': 'Gute Frage! Auf Basis der Bauantragsdaten für Kaiserstraße 47, Karlsruhe: Das Vorhaben ist mit einigen Korrekturen genehmigungsfähig. Die größten Risiken liegen im Brandschutznachweis und der HOAI-Vollständigkeit. Soll ich einen dieser Punkte vertiefen?'
+};
+
+function showChatPanel(isKarlsruhe) {
+  const panel = document.getElementById('panel-chat');
+  panel.style.display = 'block';
+
+  const greeting = isKarlsruhe
+    ? 'Hallo! Ich habe die Analyse für Kaiserstraße 47, Karlsruhe abgeschlossen. Die Genehmigungswahrscheinlichkeit liegt bei <strong>78%</strong>. Hauptthemen: Brandschutz-Nachbesserung & HOAI-Unterlagen. Wobei kann ich helfen?'
+    : 'Hallo! Starten Sie die Demo-Analyse für einen vollständigen Befund. Was möchten Sie wissen?';
+
+  addChatMessage(greeting, 'ai');
+}
+
+function addChatMessage(text, role) {
+  const container = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = `chat-msg ${role} fade-in`;
+  const now = new Date();
+  div.innerHTML = `${text}<div class="msg-time">${now.getHours()}:${String(now.getMinutes()).padStart(2,'0')}</div>`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function addThinking() {
+  const container = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'chat-msg ai fade-in';
+  div.id = 'thinking-bubble';
+  div.innerHTML = `<div class="chat-thinking"><div class="dot-bounce"></div><div class="dot-bounce"></div><div class="dot-bounce"></div></div>`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  activateFog();
+}
+
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  addChatMessage(text, 'user');
+  addThinking();
+
+  await sleep(1400 + rand(0, 800));
+
+  const el = document.getElementById('thinking-bubble');
+  if (el) el.remove();
+  deactivateFog();
+
+  const lower = text.toLowerCase();
+  let response = AI_RESPONSES.default;
+  for (const [key, val] of Object.entries(AI_RESPONSES)) {
+    if (key !== 'default' && lower.includes(key)) { response = val; break; }
+  }
+  if (lower.includes('hoai')) response = AI_RESPONSES.hoai;
+  if (lower.includes('grz') || lower.includes('grundfläche')) response = AI_RESPONSES.grz;
+  if (lower.includes('stellplatz') || lower.includes('parkplatz')) response = AI_RESPONSES.stellplatz;
+  if (lower.includes('brand') || lower.includes('flucht') || lower.includes('rettung')) response = AI_RESPONSES.brandschutz;
+
+  addChatMessage(response, 'ai');
+}
+
+// ── INITIAL STATE ─────────────────────────────────────────────
+setStatus('Bereit', '');
+
+</script>
+</body>
+</html>
